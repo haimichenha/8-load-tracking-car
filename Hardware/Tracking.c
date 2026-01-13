@@ -2,6 +2,8 @@
 #include "Tracking.h"
 #include "Delay.h"
 #include "IOI2C.h"
+#include "MyI2C.h"
+#include "HW_I2C.h"
 
 /*
  * 循迹模块驱动 - 使用IOI2C底层函数
@@ -12,9 +14,14 @@
  * 
  * 设备信息：
  * I2C地址: 0x12 (7位地址)
+ * 
+ * 注意：与陀螺仪/OLED共用I2C总线，需要切换I2C驱动
  */
 
 #define TRACKING_ADDR    0x12    // 循迹模块I2C地址（7位）
+
+// 全局变量：保存最新的循迹数据
+static uint8_t g_tracking_data = 0xFF;
 
 /*====================================================================================*/
 /*                                  初始化函数                                         */
@@ -125,4 +132,139 @@ uint8_t Tracking_ReadByI2CFunc(uint8_t reg)
 uint8_t Tracking_Read(void)
 {
     return Tracking_ReadDirect();
+}
+
+/**
+  * 函    数：带总线切换的循迹数据读取
+  * 参    数：无
+  * 返 回 值：8位循迹数据
+  * 说    明：从MyI2C切换到IOI2C，读取后再切换回去
+  *           适用于与陀螺仪/OLED共用I2C总线的场景
+  *           亚博智能循迹模块需要读取寄存器0x01
+  */
+uint8_t Tracking_ReadWithSwitch(void)
+{
+    uint8_t data;
+    
+    // 1. 释放MyI2C总线
+    MyI2C_ReleaseBus();
+    
+    // 2. 重新初始化IOI2C（推挽模式）
+    IIC_ReInit();
+    Delay_ms(2);  // 等待总线稳定
+    
+    // 3. 读取循迹数据（从寄存器0x01读取）
+    data = Tracking_ReadReg(0x01);
+    g_tracking_data = data;
+    
+    // 4. 释放IOI2C总线
+    IIC_ReleaseBus();
+    Delay_ms(1);  // 等待总线稳定
+    
+    // 5. 重新初始化MyI2C（开漏模式）
+    MyI2C_ReInit();
+    
+    return data;
+}
+
+/**
+  * 函    数：获取最新的循迹数据（不进行I2C通信）
+  * 参    数：无
+  * 返 回 值：上次读取的8位循迹数据
+  */
+uint8_t Tracking_GetLastData(void)
+{
+    return g_tracking_data;
+}
+
+/*====================================================================================*/
+/*                          硬件I2C读取函数（推荐使用）                                */
+/*====================================================================================*/
+
+/**
+  * 函    数：使用硬件I2C读取循迹数据
+  * 参    数：无
+  * 返 回 值：8位循迹数据，每位代表一个传感器状态
+  * 说    明：使用STM32硬件I2C2外设，时序精确
+  *           从寄存器0x30读取数据（官方协议）
+  */
+uint8_t Tracking_ReadHW(void)
+{
+    uint8_t data = 0xFF;
+    uint8_t result;
+    
+    result = HW_I2C_ReadByte(TRACKING_ADDR, 0x30, &data);
+    
+    if (result == 0) {
+        g_tracking_data = data;
+    }
+    
+    return data;
+}
+
+/**
+  * 函    数：使用硬件I2C读取循迹数据（带总线切换）
+  * 参    数：无
+  * 返 回 值：8位循迹数据
+  * 说    明：先切换到硬件I2C模式，读取后切换回软件I2C模式
+  *           适用于与陀螺仪/OLED共用I2C总线的场景
+  */
+uint8_t Tracking_ReadHW_WithSwitch(void)
+{
+    uint8_t data = 0xFF;
+    uint8_t result;
+    
+    // 1. 切换到硬件I2C模式
+    HW_I2C_Enable();
+    Delay_us(100);  // 等待模式切换稳定
+    
+    // 2. 使用硬件I2C读取数据
+    result = HW_I2C_ReadByte(TRACKING_ADDR, 0x30, &data);
+    
+    if (result == 0) {
+        g_tracking_data = data;
+    }
+    
+    // 3. 切换回软件I2C模式
+    HW_I2C_Disable();
+    Delay_us(100);  // 等待模式切换稳定
+    
+    // 4. 重新初始化软件I2C
+    MyI2C_ReInit();
+    
+    return data;
+}
+
+/**
+  * 函    数：解析循迹数据到8个独立变量
+  * 参    数：data - 原始8位数据
+  *           x1~x8 - 8个传感器状态输出指针
+  * 返 回 值：无
+  * 说    明：bit7=X1(最左), bit0=X8(最右)
+  *           1=检测到黑线, 0=未检测到
+  */
+void Tracking_ParseData(uint8_t data, uint8_t *x1, uint8_t *x2, uint8_t *x3, uint8_t *x4,
+                        uint8_t *x5, uint8_t *x6, uint8_t *x7, uint8_t *x8)
+{
+    *x1 = (data >> 7) & 0x01;
+    *x2 = (data >> 6) & 0x01;
+    *x3 = (data >> 5) & 0x01;
+    *x4 = (data >> 4) & 0x01;
+    *x5 = (data >> 3) & 0x01;
+    *x6 = (data >> 2) & 0x01;
+    *x7 = (data >> 1) & 0x01;
+    *x8 = (data >> 0) & 0x01;
+}
+
+/**
+  * 函    数：使用硬件I2C读取并解析循迹数据
+  * 参    数：x1~x8 - 8个传感器状态输出指针
+  * 返 回 值：无
+  * 说    明：一站式函数，读取+解析
+  */
+void Tracking_DealIRData_HW(uint8_t *x1, uint8_t *x2, uint8_t *x3, uint8_t *x4,
+                            uint8_t *x5, uint8_t *x6, uint8_t *x7, uint8_t *x8)
+{
+    uint8_t data = Tracking_ReadHW();
+    Tracking_ParseData(data, x1, x2, x3, x4, x5, x6, x7, x8);
 }

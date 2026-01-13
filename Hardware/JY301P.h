@@ -31,6 +31,8 @@ extern JY301P_Data g_jy301p_data;
 void JY301P_Init(void);
 void JY301P_Update(void);
 void JY301P_DisplayOnOLED(void);
+void JY301P_DisplayTrackingOnOLED(uint8_t trackData);
+void JY301P_DisplayAllOnOLED(uint8_t trackData);
 uint8_t JY301P_GetDataUpdateFlag(void);
 void JY301P_ClearDataUpdateFlag(uint8_t flag);
 

@@ -26,6 +26,9 @@ void IIC_NAck(void);				//IIC不发送ACK信号	IIC does not send ACK signal
 int i2cWrite(uint8_t addr, uint8_t reg, uint8_t len, uint8_t *data);
 int i2cRead(uint8_t addr, uint8_t reg, uint8_t len, uint8_t *buf);
 
+void IIC_ReleaseBus(void);   // 释放I2C总线（切换前调用）
+void IIC_ReInit(void);       // 重新初始化IOI2C（切换回来时调用）
+
 #endif
 
 //------------------End of File----------------------------

@@ -189,3 +189,33 @@ int i2cRead(uint8_t addr, uint8_t reg, uint8_t len, uint8_t *buf)
 {
     return IICreadBytes(addr << 1, reg, buf, len);
 }
+
+/**
+ * @brief  释放I2C总线（切换到其他I2C驱动前调用）
+ * @note   将引脚设置为高电平，确保总线空闲
+ */
+void IIC_ReleaseBus(void)
+{
+    SDA_OUT();
+    IIC_SDA = 1;
+    IIC_SCL = 1;
+    Delay(10);  // 等待总线稳定
+}
+
+/**
+ * @brief  重新初始化IOI2C（从其他I2C驱动切换回来时调用）
+ * @note   重新配置为推挽输出模式
+ */
+void IIC_ReInit(void)
+{
+    GPIO_InitTypeDef GPIO_InitStructure;
+    GPIO_InitStructure.GPIO_Pin = GPIO_Pin_10 | GPIO_Pin_11;
+    GPIO_InitStructure.GPIO_Mode = GPIO_Mode_Out_PP;       // 推挽输出
+    GPIO_InitStructure.GPIO_Speed = GPIO_Speed_50MHz;
+    GPIO_Init(GPIOB, &GPIO_InitStructure);
+    
+    SDA_OUT();
+    IIC_SDA = 1;
+    IIC_SCL = 1;
+    Delay(5);
+}

@@ -232,29 +232,56 @@ void JY301P_ClearDataUpdateFlag(uint8_t flag)
  */
 void JY301P_DisplayOnOLED(void)
 {
-    // 第1行: 显示角度 Roll, Pitch, Yaw
+    // 第1行: 显示角度 Roll, Pitch
     OLED_ShowString(1, 1, "R:");
     OLED_ShowSignedNum(1, 3, (int32_t)g_jy301p_data.angle[0], 3);
     OLED_ShowString(1, 8, "P:");
     OLED_ShowSignedNum(1, 10, (int32_t)g_jy301p_data.angle[1], 3);
     
-    // 第2行: 显示Yaw角度 和 角速度GZ
+    // 第2行: 显示Yaw角度
     OLED_ShowString(2, 1, "Y:");
     OLED_ShowSignedNum(2, 3, (int32_t)g_jy301p_data.angle[2], 3);
-    // OLED_ShowString(2, 8, "GZ:");
-    // OLED_ShowSignedNum(2, 11, (int32_t)g_jy301p_data.gyro[2], 3);
+}
+
+/**
+ * @brief  在OLED上显示循迹数据
+ * @param  trackData: 8位循迹数据
+ */
+void JY301P_DisplayTrackingOnOLED(uint8_t trackData)
+{
+    uint8_t i;
+    char trackStr[9];  // 8个字符 + 结束符
     
-    // // 第3行: 显示角速度 GX, GY (°/s)
-    // OLED_ShowString(3, 1, "GX:");
-    // OLED_ShowSignedNum(3, 4, (int32_t)g_jy301p_data.gyro[0], 3);
-    // OLED_ShowString(3, 10, "GY:");
-    // OLED_ShowSignedNum(3, 13, (int32_t)g_jy301p_data.gyro[1], 3);
+    // 第3行: 显示循迹标签和十六进制值
+    OLED_ShowString(3, 1, "Track:0x");
+    OLED_ShowHexNum(3, 9, trackData, 2);
     
-    // // 第4行: 显示加速度 AX, AY, AZ (放大100倍显示，单位0.01g)
-    // OLED_ShowString(4, 1, "A:");
-    // OLED_ShowSignedNum(4, 3, (int32_t)(g_jy301p_data.acc[0] * 100), 3);
-    // OLED_ShowString(4, 7, ",");
-    // OLED_ShowSignedNum(4, 8, (int32_t)(g_jy301p_data.acc[1] * 100), 3);
-    // OLED_ShowString(4, 12, ",");
-    // OLED_ShowSignedNum(4, 13, (int32_t)(g_jy301p_data.acc[2] * 100), 3);
+    // 第4行: 可视化显示8路循迹状态
+    // 亚博智能循迹模块: 0=检测到黑线, 1=未检测到
+    // 显示: '*'=检测到黑线, '-'=未检测到
+    for (i = 0; i < 8; i++) {
+        if ((trackData & (0x80 >> i)) == 0) {
+            trackStr[i] = '*';  // 检测到黑线（低电平）
+        } else {
+            trackStr[i] = '-';  // 未检测到（高电平）
+        }
+    }
+    trackStr[8] = '\0';
+    
+    OLED_ShowString(4, 1, "L");
+    OLED_ShowString(4, 2, trackStr);
+    OLED_ShowString(4, 10, "R");
+}
+
+/**
+ * @brief  在OLED上显示所有传感器数据（陀螺仪+循迹）
+ * @param  trackData: 8位循迹数据
+ */
+void JY301P_DisplayAllOnOLED(uint8_t trackData)
+{
+    // 显示陀螺仪数据（第1-2行）
+    JY301P_DisplayOnOLED();
+    
+    // 显示循迹数据（第3-4行）
+    JY301P_DisplayTrackingOnOLED(trackData);
 }
