@@ -2,7 +2,6 @@
 #include "Tracking.h"
 #include "Delay.h"
 #include "IOI2C.h"
-#include "MyI2C.h"
 #include "HW_I2C.h"
 
 /*
@@ -135,34 +134,26 @@ uint8_t Tracking_Read(void)
 }
 
 /**
-  * 函    数：带总线切换的循迹数据读取
+  * 函    数：带总线切换的循迹数据读取（IOI2C方式）
   * 参    数：无
   * 返 回 值：8位循迹数据
-  * 说    明：从MyI2C切换到IOI2C，读取后再切换回去
-  *           适用于与陀螺仪/OLED共用I2C总线的场景
-  *           亚博智能循迹模块需要读取寄存器0x01
+  * 说    明：使用IOI2C读取，适用于与其他设备共用I2C总线的场景
+  *           亚博智能循迹模块需要读取寄存器0x30
   */
 uint8_t Tracking_ReadWithSwitch(void)
 {
     uint8_t data;
     
-    // 1. 释放MyI2C总线
-    MyI2C_ReleaseBus();
-    
-    // 2. 重新初始化IOI2C（推挽模式）
-    IIC_ReInit();
+    // 1. 初始化IOI2C
+    IIC_Init();
     Delay_ms(2);  // 等待总线稳定
     
-    // 3. 读取循迹数据（从寄存器0x01读取）
-    data = Tracking_ReadReg(0x01);
+    // 2. 读取循迹数据（从寄存器0x30读取）
+    data = Tracking_ReadReg(0x30);
     g_tracking_data = data;
     
-    // 4. 释放IOI2C总线
+    // 3. 释放IOI2C总线
     IIC_ReleaseBus();
-    Delay_ms(1);  // 等待总线稳定
-    
-    // 5. 重新初始化MyI2C（开漏模式）
-    MyI2C_ReInit();
     
     return data;
 }
@@ -225,12 +216,12 @@ uint8_t Tracking_ReadHW_WithSwitch(void)
         g_tracking_data = data;
     }
     
-    // 3. 切换回软件I2C模式
+    // 3. 切换回软件I2C模式（IOI2C）
     HW_I2C_Disable();
     Delay_us(100);  // 等待模式切换稳定
     
-    // 4. 重新初始化软件I2C
-    MyI2C_ReInit();
+    // 4. 释放总线，让其他设备可以使用
+    IIC_ReleaseBus();
     
     return data;
 }

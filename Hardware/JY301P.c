@@ -1,5 +1,5 @@
 #include "JY301P.h"
-#include "MyI2C.h"
+#include "IOI2C.h"
 #include "OLED.h"
 #include "Delay.h"
 #include "wit_c_sdk.h"
@@ -9,13 +9,13 @@
  * 完全使用官方 wit_c_sdk 库
  * I2C引脚: PB10(SCL), PB11(SDA) - 与OLED共用
  * 设备地址: 0x50 (7位地址)
- * 需要4.7K上拉电阻
+ * 使用IOI2C驱动（推挽模式）
  */
 
 JY301P_Data g_jy301p_data;
 static volatile uint8_t s_cDataUpdate = 0;
 
-/*=== I2C适配函数（适配MyI2C.c到官方SDK） ===*/
+/*=== I2C适配函数（适配IOI2C.c到官方SDK） ===*/
 
 /**
  * @brief  I2C写入函数（官方SDK回调格式）
@@ -29,28 +29,28 @@ static int32_t JY301P_I2cWriteFunc(uint8_t ucAddr, uint8_t ucReg, uint8_t *p_ucV
 {
     uint32_t i;
     
-    MyI2C_Start();
-    MyI2C_SendByte(ucAddr);         // 发送设备写地址
-    if (MyI2C_ReceiveAck() != 0) {
-        MyI2C_Stop();
+    IIC_Start();
+    IIC_Send_Byte(ucAddr);         // 发送设备写地址
+    if (IIC_Wait_Ack() != 0) {
+        IIC_Stop();
         return 0;
     }
     
-    MyI2C_SendByte(ucReg);          // 发送寄存器地址
-    if (MyI2C_ReceiveAck() != 0) {
-        MyI2C_Stop();
+    IIC_Send_Byte(ucReg);          // 发送寄存器地址
+    if (IIC_Wait_Ack() != 0) {
+        IIC_Stop();
         return 0;
     }
     
     for (i = 0; i < uiLen; i++) {
-        MyI2C_SendByte(p_ucVal[i]);
-        if (MyI2C_ReceiveAck() != 0) {
-            MyI2C_Stop();
+        IIC_Send_Byte(p_ucVal[i]);
+        if (IIC_Wait_Ack() != 0) {
+            IIC_Stop();
             return 0;
         }
     }
     
-    MyI2C_Stop();
+    IIC_Stop();
     return 1;
 }
 
@@ -66,36 +66,35 @@ static int32_t JY301P_I2cReadFunc(uint8_t ucAddr, uint8_t ucReg, uint8_t *p_ucVa
 {
     uint32_t i;
     
-    MyI2C_Start();
-    MyI2C_SendByte(ucAddr);         // 发送设备写地址
-    if (MyI2C_ReceiveAck() != 0) {
-        MyI2C_Stop();
+    IIC_Start();
+    IIC_Send_Byte(ucAddr);         // 发送设备写地址
+    if (IIC_Wait_Ack() != 0) {
+        IIC_Stop();
         return 0;
     }
     
-    MyI2C_SendByte(ucReg);          // 发送寄存器地址
-    if (MyI2C_ReceiveAck() != 0) {
-        MyI2C_Stop();
+    IIC_Send_Byte(ucReg);          // 发送寄存器地址
+    if (IIC_Wait_Ack() != 0) {
+        IIC_Stop();
         return 0;
     }
     
-    MyI2C_Start();                  // 重复起始
-    MyI2C_SendByte(ucAddr + 1);     // 发送设备读地址
-    if (MyI2C_ReceiveAck() != 0) {
-        MyI2C_Stop();
+    IIC_Start();                   // 重复起始
+    IIC_Send_Byte(ucAddr + 1);     // 发送设备读地址
+    if (IIC_Wait_Ack() != 0) {
+        IIC_Stop();
         return 0;
     }
     
     for (i = 0; i < uiLen; i++) {
-        p_ucVal[i] = MyI2C_ReceiveByte();
         if (i + 1 == uiLen) {
-            MyI2C_SendAck(1);       // 最后一个字节发送NACK
+            p_ucVal[i] = IIC_Read_Byte(0);  // 最后一个字节发送NACK
         } else {
-            MyI2C_SendAck(0);       // 其他字节发送ACK
+            p_ucVal[i] = IIC_Read_Byte(1);  // 其他字节发送ACK
         }
     }
     
-    MyI2C_Stop();
+    IIC_Stop();
     return 1;
 }
 
@@ -232,56 +231,29 @@ void JY301P_ClearDataUpdateFlag(uint8_t flag)
  */
 void JY301P_DisplayOnOLED(void)
 {
-    // 第1行: 显示角度 Roll, Pitch
+    // 第1行: 显示角度 Roll, Pitch, Yaw
     OLED_ShowString(1, 1, "R:");
-    OLED_ShowSignedNum(1, 3, (int32_t)g_jy301p_data.angle[0], 3);
+    OLED_ShowSignedNum(1, 3, (int32_t)g_jy301p_data.angle[0], 4);
     OLED_ShowString(1, 8, "P:");
-    OLED_ShowSignedNum(1, 10, (int32_t)g_jy301p_data.angle[1], 3);
+    OLED_ShowSignedNum(1, 10, (int32_t)g_jy301p_data.angle[1], 4);
     
-    // 第2行: 显示Yaw角度
+    // 第2行: 显示Yaw角度 和 角速度GZ
     OLED_ShowString(2, 1, "Y:");
-    OLED_ShowSignedNum(2, 3, (int32_t)g_jy301p_data.angle[2], 3);
-}
-
-/**
- * @brief  在OLED上显示循迹数据
- * @param  trackData: 8位循迹数据
- */
-void JY301P_DisplayTrackingOnOLED(uint8_t trackData)
-{
-    uint8_t i;
-    char trackStr[9];  // 8个字符 + 结束符
+    OLED_ShowSignedNum(2, 3, (int32_t)g_jy301p_data.angle[2], 4);
+    OLED_ShowString(2, 8, "GZ:");
+    OLED_ShowSignedNum(2, 11, (int32_t)g_jy301p_data.gyro[2], 5);
     
-    // 第3行: 显示循迹标签和十六进制值
-    OLED_ShowString(3, 1, "Track:0x");
-    OLED_ShowHexNum(3, 9, trackData, 2);
+    // 第3行: 显示角速度 GX, GY (°/s)
+    OLED_ShowString(3, 1, "GX:");
+    OLED_ShowSignedNum(3, 4, (int32_t)g_jy301p_data.gyro[0], 5);
+    OLED_ShowString(3, 10, "GY:");
+    OLED_ShowSignedNum(3, 13, (int32_t)g_jy301p_data.gyro[1], 4);
     
-    // 第4行: 可视化显示8路循迹状态
-    // 亚博智能循迹模块: 0=检测到黑线, 1=未检测到
-    // 显示: '*'=检测到黑线, '-'=未检测到
-    for (i = 0; i < 8; i++) {
-        if ((trackData & (0x80 >> i)) == 0) {
-            trackStr[i] = '*';  // 检测到黑线（低电平）
-        } else {
-            trackStr[i] = '-';  // 未检测到（高电平）
-        }
-    }
-    trackStr[8] = '\0';
-    
-    OLED_ShowString(4, 1, "L");
-    OLED_ShowString(4, 2, trackStr);
-    OLED_ShowString(4, 10, "R");
-}
-
-/**
- * @brief  在OLED上显示所有传感器数据（陀螺仪+循迹）
- * @param  trackData: 8位循迹数据
- */
-void JY301P_DisplayAllOnOLED(uint8_t trackData)
-{
-    // 显示陀螺仪数据（第1-2行）
-    JY301P_DisplayOnOLED();
-    
-    // 显示循迹数据（第3-4行）
-    JY301P_DisplayTrackingOnOLED(trackData);
+    // 第4行: 显示加速度 AX, AY, AZ (放大100倍显示，单位0.01g)
+    OLED_ShowString(4, 1, "A:");
+    OLED_ShowSignedNum(4, 3, (int32_t)(g_jy301p_data.acc[0] * 100), 3);
+    OLED_ShowString(4, 7, ",");
+    OLED_ShowSignedNum(4, 8, (int32_t)(g_jy301p_data.acc[1] * 100), 3);
+    OLED_ShowString(4, 12, ",");
+    OLED_ShowSignedNum(4, 13, (int32_t)(g_jy301p_data.acc[2] * 100), 3);
 }

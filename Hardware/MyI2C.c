@@ -121,13 +121,7 @@ uint8_t MyI2C_ReceiveByte(void)
 	for (i = 0; i < 8; i ++)			//循环8次，主机依次接收数据的每一位
 	{
 		MyI2C_W_SCL(1);					//释放SCL
-		if (i == 0) {
-			Delay_us(20);				//第一个bit需要更长的等待时间（L8）
-		} else if (i == 7) {
-			Delay_us(20);				//最后一个bit也需要更长等待（L1）
-		} else {
-			Delay_us(10);				//中间的bit正常延时
-		}
+		Delay_us(15);
 		if (MyI2C_R_SDA()) {Byte |= (0x80 >> i);}	//读取SDA数据
 		MyI2C_W_SCL(0);					//拉低SCL
 		Delay_us(5);					//等待从机准备下一位数据

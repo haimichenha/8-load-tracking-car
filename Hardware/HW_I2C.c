@@ -223,11 +223,16 @@ uint8_t HW_I2C_WriteByte(uint8_t SlaveAddr, uint8_t RegAddr, uint8_t Data)
 
 /**
   * @brief  切换到硬件I2C模式
-  * @note   将GPIO配置为复用开漏，启用I2C2外设
+  * @note   将GPIO配置为复用开漏，重新初始化I2C2外设
   */
 void HW_I2C_Enable(void)
 {
     GPIO_InitTypeDef GPIO_InitStructure;
+    I2C_InitTypeDef I2C_InitStructure;
+    
+    /* 使能时钟 */
+    RCC_APB2PeriphClockCmd(RCC_APB2Periph_GPIOB, ENABLE);
+    RCC_APB1PeriphClockCmd(RCC_APB1Periph_I2C2, ENABLE);
     
     /* 配置PB10(SCL), PB11(SDA)为复用开漏输出 */
     GPIO_InitStructure.GPIO_Pin = GPIO_Pin_10 | GPIO_Pin_11;
@@ -235,8 +240,15 @@ void HW_I2C_Enable(void)
     GPIO_InitStructure.GPIO_Speed = GPIO_Speed_50MHz;
     GPIO_Init(GPIOB, &GPIO_InitStructure);
     
-    /* 使能I2C2时钟 */
-    RCC_APB1PeriphClockCmd(RCC_APB1Periph_I2C2, ENABLE);
+    /* 重新初始化I2C2配置 */
+    I2C_DeInit(I2C2);
+    I2C_InitStructure.I2C_Mode = I2C_Mode_I2C;
+    I2C_InitStructure.I2C_DutyCycle = I2C_DutyCycle_2;
+    I2C_InitStructure.I2C_OwnAddress1 = 0x00;
+    I2C_InitStructure.I2C_Ack = I2C_Ack_Enable;
+    I2C_InitStructure.I2C_AcknowledgedAddress = I2C_AcknowledgedAddress_7bit;
+    I2C_InitStructure.I2C_ClockSpeed = 400000;
+    I2C_Init(I2C2, &I2C_InitStructure);
     
     /* 使能I2C2 */
     I2C_Cmd(I2C2, ENABLE);
