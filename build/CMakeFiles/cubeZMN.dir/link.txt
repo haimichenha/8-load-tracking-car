@@ -1,0 +1,3 @@
+C:\Users\chenha\AppData\Local\stm32cube\bundles\cmake\4.0.1+st.3\bin\cmake.exe -E rm -f CMakeFiles\cubeZMN.dir/objects.a
+D:\AZBao\git\MinGw\mingw64\bin\ar.exe qc CMakeFiles\cubeZMN.dir/objects.a @CMakeFiles\cubeZMN.dir\objects1.rsp
+D:\AZBao\git\MinGw\mingw64\bin\gcc.exe -g -Wl,--whole-archive CMakeFiles\cubeZMN.dir/objects.a -Wl,--no-whole-archive -o cubeZMN.exe -Wl,--out-implib,libcubeZMN.dll.a -Wl,--major-image-version,0,--minor-image-version,0 @CMakeFiles\cubeZMN.dir\linkLibs.rsp

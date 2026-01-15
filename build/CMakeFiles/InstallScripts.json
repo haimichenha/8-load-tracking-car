@@ -1,0 +1,8 @@
+{
+	"InstallScripts" : 
+	[
+		"F:/keil5/stm/build/cmake_install.cmake",
+		"F:/keil5/stm/build/cmake/stm32cubemx/cmake_install.cmake"
+	],
+	"Parallel" : false
+}

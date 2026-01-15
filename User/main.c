@@ -6,64 +6,140 @@
 #include "Tracking.h"
 #include "JY301P.h"
 #include "IOI2C.h"
+#include "bsp_key.h"
+#include "app_ui.h"
+#include "app_stats.h"
 #include <stdio.h>
 
 /*
- * 测试模式 v9：循迹模块(硬件I2C) + 陀螺仪(IOI2C)
+ * 版本 v18：综合页面 + 按键切换
  * 
- * 显示内容：
- * 第1行：循迹HW数据 + 陀螺仪Roll/Pitch
- * 第2行：循迹Bin数据
- * 第3行：陀螺仪Yaw
- * 第4行：状态
- * 
- * I2C分配：
- * - 循迹模块(0x12): 硬件I2C2
- * - 陀螺仪(0x50): IOI2C (软件I2C)
- * - OLED(0x3C): OLED_I2C (自带)
+ * 参数配置：
+ * - 主循环周期: 5ms
+ * - 长按阈值: 16ms
+ * - 消抖采样: 1次
  */
 
-#define TRACKING_ADDR   0x12    // 循迹模块I2C地址 (7位)
-#define TRACKING_REG    0x30    // 数据寄存器地址（官方）
+#define TRACKING_ADDR   0x12
+#define TRACKING_REG    0x30
+
+/* 主循环周期 (ms) */
+#define LOOP_PERIOD_MS  5
+
+/* 主循环计数器 */
+static volatile uint32_t g_loopCounter = 0;
+
+/* 时钟变量 - 用循环计数当秒位 */
+static volatile uint16_t g_seconds = 0;   /* 秒位 0-59，直接显示 */
+static volatile uint16_t g_minutes = 0;   /* 分位 0-59 */
+static volatile uint16_t g_hours = 0;     /* 时位（可选显示）*/
+
+/* 不需要 g_secCounter 了，g_loopCounter 直接当秒位用 */
+
+/* 长按计时变量 */
+static volatile uint8_t g_longPressCounter = 0;  /* 长按计数 0-5 */
+
+/* 当前页面 */
+static uint8_t g_currentPage = 0;  /* 0=综合页, 1=循迹页 */
 
 int main(void)
 {
-    uint8_t track_hw = 0x00;      // 硬件I2C读取的循迹数据
-    uint8_t hw_result = 0;        // 硬件I2C返回值
-    uint8_t fail_count = 0;       // 连续失败计数
+    uint8_t track_hw = 0x00;
+    uint8_t hw_result = 0;
+    uint8_t fail_count = 0;
+    KeyEvent_t keyEvent;
+    uint8_t keyRaw = 1;
+    char minBuf[4];   /* 分钟缓冲 */
+    char secBuf[4];   /* 秒钟缓冲 */
     uint8_t i;
+    
+    /*========== 初始化 ==========*/
+    
+    /* 初始化按键 */
+    Key_Init();
+    
+    /* 初始化统计模块 */
+    Stats_Init();
+    
+    /* 初始化UI模块 */
+    UI_Init();
     
     /* 初始化OLED */
     OLED_Init();
     Delay_ms(100);
     
-    OLED_ShowString(1, 1, "Track v9");
-    OLED_ShowString(2, 1, "HW+Gyro Test");
-    Delay_ms(1000);
+    /* 显示启动画面 */
+    OLED_ShowString(1, 1, "System v18");
+    OLED_ShowString(2, 1, "Long:16ms 5ms/lp");
+    Delay_ms(800);
     OLED_Clear();
     
-    /* 初始化IOI2C（用于陀螺仪） */
+    /* 初始化IOI2C和陀螺仪 */
     IIC_Init();
-    Delay_ms(100);
-    
-    /* 初始化陀螺仪 */
+    Delay_ms(50);
     JY301P_Init();
-    Delay_ms(100);
+    Delay_ms(50);
     
-    /* 初始化硬件I2C（用于循迹模块） */
+    /* 初始化硬件I2C */
     HW_I2C_Init();
     Delay_ms(50);
     
+    /*========== 主循环 ==========*/
     while (1)
     {
-        /*=== 第一步：使用硬件I2C读取循迹模块 ===*/
-        hw_result = HW_I2C_ReadByte(TRACKING_ADDR, TRACKING_REG, &track_hw);
+        g_loopCounter++;
         
-        // 如果读取失败，尝试恢复
+        /* 时钟逻辑：g_loopCounter 当秒位，满60进位 */
+        if (g_loopCounter >= 60)
+        {
+            g_loopCounter = 0;
+            g_minutes++;
+            
+            /* 分钟满60也重置 */
+            if (g_minutes >= 60)
+            {
+                g_minutes = 0;
+                g_hours++;
+            }
+        }
+        
+        /*=== 按键扫描 ===*/
+        keyRaw = Key_GetLevel();
+        keyEvent = Key_ScanWithTime(LOOP_PERIOD_MS);
+        
+        /* 长按计时：按键按下时计数，松开时重置 */
+        if (keyRaw == 0)  /* 按键按下 */
+        {
+            if (g_longPressCounter < 9)
+                g_longPressCounter++;
+        }
+        else  /* 按键松开 */
+        {
+            g_longPressCounter = 0;
+        }
+        
+        if (keyEvent == KEY_EVENT_SHORT)
+        {
+            /* 短按切换页面 */
+            g_currentPage = (g_currentPage + 1) % 2;  /* 0 和 1 之间切换 */
+            OLED_Clear();  /* 切换页面时清屏 */
+        }
+        else if (keyEvent == KEY_EVENT_LONG)
+        {
+            if (UI_IsShowingStats())
+                UI_HideStats();
+            else
+                UI_ShowStats();
+        }
+        
+        /*=== 更新时间 ===*/
+        Stats_Update(LOOP_PERIOD_MS);
+        
+        /*=== 读取循迹 ===*/
+        hw_result = HW_I2C_ReadByte(TRACKING_ADDR, TRACKING_REG, &track_hw);
         if (hw_result != 0) {
             fail_count++;
             if (fail_count >= 3) {
-                // 连续失败3次，尝试总线恢复
                 HW_I2C_BusRecovery();
                 fail_count = 0;
             }
@@ -71,52 +147,107 @@ int main(void)
             fail_count = 0;
         }
         
-        /*=== 第二步：切换到IOI2C，读取陀螺仪 ===*/
-        HW_I2C_Disable();   // 关闭硬件I2C，释放GPIO
-        Delay_ms(1);        // 等待总线稳定
-        IIC_Init();         // 初始化IOI2C
-        
-        // 更新陀螺仪数据
+        /*=== 读取陀螺仪 ===*/
+        HW_I2C_Disable();
+        Delay_us(100);
+        IIC_Init();
         JY301P_Update();
+        Stats_UpdateAngularSpeed(g_jy301p_data.gyro[2]);
+        IIC_ReleaseBus();
+        Delay_us(100);
         
-        /*=== 第三步：更新OLED显示 ===*/
-        // 第1行：显示循迹HW数据 + Roll/Pitch
-        OLED_ShowString(1, 1, "R:");
-        OLED_ShowSignedNum(1, 3, (int32_t)g_jy301p_data.angle[0], 3);
-        OLED_ShowString(1, 9, "P:");
-        OLED_ShowSignedNum(1, 11, (int32_t)g_jy301p_data.angle[1], 3);
+        /*=== 更新循迹分析 ===*/
+        UI_UpdateTrackingAnalysis(track_hw);
         
-        // 第2行：显示Yaw角度
-        OLED_ShowString(2, 1, "Yaw:");
-        OLED_ShowSignedNum(2, 5, (int32_t)g_jy301p_data.angle[2], 3);
+        /*=== 显示 ===*/
+        OLED_I2C_Init();
+        Delay_us(50);
         
-        // 第3行：循迹HW数据 + 二进制显示
-        OLED_ShowString(3, 1, "HW:");
-        OLED_ShowHexNum(3, 4, track_hw, 2);
-        OLED_ShowString(3, 7, "B:");
-        for (i = 0; i < 8; i++) {
-            if (track_hw & (0x80 >> i)) {
-                OLED_ShowChar(3, 9 + i, '1');
-            } else {
-                OLED_ShowChar(3, 9 + i, '0');
+        /* 格式化分钟 */
+        minBuf[0] = '0' + (g_minutes / 10) % 10;
+        minBuf[1] = '0' + g_minutes % 10;
+        minBuf[2] = '\0';
+        
+        /* 秒位直接用 g_loopCounter */
+        secBuf[0] = '0' + (g_loopCounter / 10) % 10;
+        secBuf[1] = '0' + g_loopCounter % 10;
+        secBuf[2] = '\0';
+        
+        /*=== 根据页面显示不同内容 ===*/
+        if (g_currentPage == 0)
+        {
+            /*========== 页面0：综合信息页 ==========*/
+            // 第1行: Roll Pitch
+            OLED_ShowString(1, 1, "R:");
+            OLED_ShowSignedNum(1, 3, (int32_t)g_jy301p_data.angle[0], 4);
+            OLED_ShowString(1, 9, "P:");
+            OLED_ShowSignedNum(1, 11, (int32_t)g_jy301p_data.angle[1], 4);
+            
+            // 第2行: Yaw + 二进制循迹
+            OLED_ShowString(2, 1, "Y:");
+            OLED_ShowSignedNum(2, 3, (int32_t)g_jy301p_data.angle[2], 4);
+            OLED_ShowString(2, 8, " ");
+            for (i = 0; i < 8; i++)
+            {
+                OLED_ShowChar(2, 9 + i, g_trackAnalysis.sensorStatus[i] ? '1' : '0');
             }
+            
+            // 第3行: 时间 + 速度预留
+            OLED_ShowString(3, 1, "T:");
+            OLED_ShowString(3, 3, minBuf);
+            OLED_ShowString(3, 5, ":");
+            OLED_ShowString(3, 6, secBuf);
+            OLED_ShowString(3, 9, "V:----");  // 速度预留
+            
+            // 第4行: 超声波预留 + 按键状态
+            OLED_ShowString(4, 1, "US:----");  // 超声波预留
+            OLED_ShowString(4, 9, "K:");
+            OLED_ShowNum(4, 11, keyRaw, 1);
+            OLED_ShowString(4, 13, "S:");
+            OLED_ShowNum(4, 15, g_longPressCounter, 1);
+        }
+        else
+        {
+            /*========== 页面1：循迹详情页 ==========*/
+            // 第1行: 循迹二进制
+            OLED_ShowString(1, 1, "TRK:");
+            for (i = 0; i < 8; i++)
+            {
+                OLED_ShowChar(1, 5 + i, g_trackAnalysis.sensorStatus[i] ? '1' : '0');
+            }
+            OLED_ShowString(1, 14, "  ");  // 清除残留
+            
+            // 第2行: HEX值 + 偏移量
+            OLED_ShowString(2, 1, "HEX:");
+            OLED_ShowHexNum(2, 5, track_hw, 2);
+            OLED_ShowString(2, 8, " OFF:");
+            OLED_ShowSignedNum(2, 13, g_trackAnalysis.offset, 3);
+            
+            // 第3行: 左右传感器遮挡状态 (0-3左侧, 4-7右侧)
+            OLED_ShowString(3, 1, "L:");
+            for (i = 0; i < 4; i++)
+            {
+                OLED_ShowChar(3, 3 + i, g_trackAnalysis.sensorStatus[i] ? '1' : '0');
+            }
+            OLED_ShowString(3, 8, " R:");
+            for (i = 4; i < 8; i++)
+            {
+                OLED_ShowChar(3, 11 + (i - 4), g_trackAnalysis.sensorStatus[i] ? '1' : '0');
+            }
+            
+            // 第4行: 速度预留 + 按键状态
+            OLED_ShowString(4, 1, "V:----");  // 速度预留
+            OLED_ShowString(4, 9, "K:");
+            OLED_ShowNum(4, 11, keyRaw, 1);
+            OLED_ShowString(4, 13, "S:");
+            OLED_ShowNum(4, 15, g_longPressCounter, 1);
         }
         
-        // 第4行：状态
-        if (hw_result == 0) {
-            OLED_ShowString(4, 1, "Track:OK  ");
-        } else {
-            OLED_ShowString(4, 1, "Track:FAIL");
-        }
-        OLED_ShowString(4, 12, "v9");
+        /*=== 切换回硬件I2C ===*/
+        HW_I2C_Enable();
         
-        /*=== 第四步：切换回硬件I2C，准备下次读取 ===*/
-        IIC_ReleaseBus();   // 释放IOI2C总线
-        Delay_ms(1);        // 等待总线稳定
-        HW_I2C_Enable();    // 切换回硬件I2C（完整重新初始化）
-        Delay_ms(1);        // 等待I2C稳定
-        
-        Delay_ms(25);
+        /*=== 延时 ===*/
+        Delay_us(500);  // 500us延时
     }
 }
 
