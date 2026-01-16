@@ -158,7 +158,7 @@ int main(void)
             OLED_ShowString(1, 9, "P:");
             OLED_ShowSignedNum(1, 11, (int32_t)g_jy301p_data.angle[1], 4);
             
-            // 第2行: Yaw + 二进制循迹
+            // 第2行: Yaw + 二进制循迹 (1=遮挡, 0=未遮挡)
             OLED_ShowString(2, 1, "Y:");
             OLED_ShowSignedNum(2, 3, (int32_t)g_jy301p_data.angle[2], 4);
             OLED_ShowString(2, 8, " ");
@@ -183,7 +183,14 @@ int main(void)
         else
         {
             /*========== 页面1：循迹详情页 ==========*/
-            // 第1行: 循迹二进制
+            /*
+             * 传感器状态说明 (根据实际硬件):
+             * 1 = 被遮挡(检测到黑线)
+             * 0 = 未遮挡(悬空/白色)
+             * 如果实际相反，请在 app_ui.c 中修改解析逻辑
+             */
+            
+            // 第1行: 循迹二进制 (1=遮挡, 0=未遮挡)
             OLED_ShowString(1, 1, "TRK:");
             for (i = 0; i < 8; i++)
             {
@@ -197,17 +204,12 @@ int main(void)
             OLED_ShowString(2, 8, " OFF:");
             OLED_ShowSignedNum(2, 13, g_trackAnalysis.offset, 3);
             
-            // 第3行: 左右传感器遮挡状态 (0-3左侧, 4-7右侧)
-            OLED_ShowString(3, 1, "L:");
-            for (i = 0; i < 4; i++)
-            {
-                OLED_ShowChar(3, 3 + i, g_trackAnalysis.sensorStatus[i] ? '1' : '0');
-            }
-            OLED_ShowString(3, 8, " R:");
-            for (i = 4; i < 8; i++)
-            {
-                OLED_ShowChar(3, 11 + (i - 4), g_trackAnalysis.sensorStatus[i] ? '1' : '0');
-            }
+            // 第3行: 状态说明 + 线宽
+            // 显示 1=遮挡 0=空 的提示
+            OLED_ShowString(3, 1, "1=ZD 0=KG");  // 1=遮挡 0=空(悬空)
+            OLED_ShowString(3, 11, "W:");       // 线宽
+            OLED_ShowNum(3, 13, g_trackAnalysis.lineWidth, 1);
+            OLED_ShowString(3, 15, " ");
             
             // 第4行: 速度预留 + 按键状态
             OLED_ShowString(4, 1, "V:----");  // 速度预留

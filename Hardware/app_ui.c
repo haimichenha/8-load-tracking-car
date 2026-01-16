@@ -97,7 +97,11 @@ void UI_SetPage(UI_Page_t page)
   * @param  trackData: 8位循迹原始数据
   * @note   传感器排列假设: [S7][S6][S5][S4][S3][S2][S1][S0]
   *         S7=最左侧, S0=最右侧
-  *         1=检测到黑线(遮挡), 0=未检测到
+  *         
+  *         传感器状态说明 (需根据实际硬件确认):
+  *         - 如果是 1=检测到黑线(遮挡), 0=未检测到(悬空)
+  *         - 如果是 0=检测到黑线(遮挡), 1=未检测到(悬空)
+  *         请根据实际情况修改下面的解析逻辑
   */
 void UI_UpdateTrackingAnalysis(uint8_t trackData)
 {
@@ -107,6 +111,9 @@ void UI_UpdateTrackingAnalysis(uint8_t trackData)
     uint8_t firstActive = 0xFF;
     uint8_t lastActive = 0xFF;
     
+    /* 位置权重表: 传感器0-7对应权重 -3, -2, -1, 0, 0, 1, 2, 3 */
+    static const int8_t posWeight[8] = {-3, -2, -1, 0, 0, 1, 2, 3};
+    
     g_trackAnalysis.rawData = trackData;
     
     /* 解析每个传感器状态 */
@@ -115,14 +122,20 @@ void UI_UpdateTrackingAnalysis(uint8_t trackData)
         /* 位7对应传感器0(最左), 位0对应传感器7(最右) */
         g_trackAnalysis.sensorStatus[i] = (trackData >> (7 - i)) & 0x01;
         
-        if (g_trackAnalysis.sensorStatus[i])
+        /* 
+         * 判断是否被遮挡 (根据实际硬件修改):
+         * 方案A: sensorStatus[i] == 1 表示被遮挡
+         * 方案B: sensorStatus[i] == 0 表示被遮挡
+         * 当前使用方案A
+         */
+        if (g_trackAnalysis.sensorStatus[i])  // 1=被遮挡
         {
             activeCount++;
             if (firstActive == 0xFF) firstActive = i;
             lastActive = i;
             
-            /* 加权计算偏移量: 位置0-7对应权重-4到+3 */
-            weightedSum += (int16_t)(i) - 4;  // -4, -3, -2, -1, 0, 1, 2, 3
+            /* 使用权重表计算偏移量 */
+            weightedSum += posWeight[i];  // 权重: -3, -2, -1, 0, 0, 1, 2, 3
         }
     }
     
