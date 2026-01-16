@@ -9,35 +9,27 @@
 #include "bsp_key.h"
 #include "app_ui.h"
 #include "app_stats.h"
+#include "bsp_systick.h"  /* 精准计时模块 */
 #include <stdio.h>
 
 /*
- * 版本 v18：综合页面 + 按键切换
+ * 版本 v19：精准计时版本
  * 
- * 参数配置：
- * - 主循环周期: 5ms
- * - 长按阈值: 16ms
- * - 消抖采样: 1次
+ * 使用 TIM2 硬件定时器实现 1ms 中断
+ * 计时精度取决于晶振精度，不受主循环影响
  */
 
 #define TRACKING_ADDR   0x12
 #define TRACKING_REG    0x30
 
-/* 主循环周期 (ms) */
+/* 主循环周期 (ms) - 仅用于按键扫描 */
 #define LOOP_PERIOD_MS  5
 
 /* 主循环计数器 */
 static volatile uint32_t g_loopCounter = 0;
 
-/* 时钟变量 - 用循环计数当秒位 */
-static volatile uint16_t g_seconds = 0;   /* 秒位 0-59，直接显示 */
-static volatile uint16_t g_minutes = 0;   /* 分位 0-59 */
-static volatile uint16_t g_hours = 0;     /* 时位（可选显示）*/
-
-/* 不需要 g_secCounter 了，g_loopCounter 直接当秒位用 */
-
 /* 长按计时变量 */
-static volatile uint8_t g_longPressCounter = 0;  /* 长按计数 0-5 */
+static volatile uint8_t g_longPressCounter = 0;  /* 长按计数 0-9 */
 
 /* 当前页面 */
 static uint8_t g_currentPage = 0;  /* 0=综合页, 1=循迹页 */
@@ -49,11 +41,13 @@ int main(void)
     uint8_t fail_count = 0;
     KeyEvent_t keyEvent;
     uint8_t keyRaw = 1;
-    char minBuf[4];   /* 分钟缓冲 */
-    char secBuf[4];   /* 秒钟缓冲 */
+    char timeBuf[8];   /* 时间缓冲 MM:SS */
     uint8_t i;
     
     /*========== 初始化 ==========*/
+    
+    /* 初始化精准计时器 (TIM2, 1ms中断) */
+    SysTick_Init();
     
     /* 初始化按键 */
     Key_Init();
@@ -69,8 +63,8 @@ int main(void)
     Delay_ms(100);
     
     /* 显示启动画面 */
-    OLED_ShowString(1, 1, "System v18");
-    OLED_ShowString(2, 1, "Long:16ms 5ms/lp");
+    OLED_ShowString(1, 1, "System v19");
+    OLED_ShowString(2, 1, "TIM2 Precision");
     Delay_ms(800);
     OLED_Clear();
     
@@ -89,19 +83,7 @@ int main(void)
     {
         g_loopCounter++;
         
-        /* 时钟逻辑：g_loopCounter 当秒位，满60进位 */
-        if (g_loopCounter >= 60)
-        {
-            g_loopCounter = 0;
-            g_minutes++;
-            
-            /* 分钟满60也重置 */
-            if (g_minutes >= 60)
-            {
-                g_minutes = 0;
-                g_hours++;
-            }
-        }
+        /* 计时由 TIM2 中断处理，这里不需要计时逻辑 */
         
         /*=== 按键扫描 ===*/
         keyRaw = Key_GetLevel();
@@ -163,15 +145,8 @@ int main(void)
         OLED_I2C_Init();
         Delay_us(50);
         
-        /* 格式化分钟 */
-        minBuf[0] = '0' + (g_minutes / 10) % 10;
-        minBuf[1] = '0' + g_minutes % 10;
-        minBuf[2] = '\0';
-        
-        /* 秒位直接用 g_loopCounter */
-        secBuf[0] = '0' + (g_loopCounter / 10) % 10;
-        secBuf[1] = '0' + g_loopCounter % 10;
-        secBuf[2] = '\0';
+        /* 获取精准时间字符串 MM:SS */
+        SysTick_GetTimeString(timeBuf);
         
         /*=== 根据页面显示不同内容 ===*/
         if (g_currentPage == 0)
@@ -193,10 +168,9 @@ int main(void)
             }
             
             // 第3行: 时间 + 速度预留
+            // 格式: T:MM:SS (分钟:秒钟) - 使用TIM2精准计时
             OLED_ShowString(3, 1, "T:");
-            OLED_ShowString(3, 3, minBuf);
-            OLED_ShowString(3, 5, ":");
-            OLED_ShowString(3, 6, secBuf);
+            OLED_ShowString(3, 3, timeBuf);  // MM:SS 格式
             OLED_ShowString(3, 9, "V:----");  // 速度预留
             
             // 第4行: 超声波预留 + 按键状态

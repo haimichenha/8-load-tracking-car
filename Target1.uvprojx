@@ -488,11 +488,6 @@
               <FilePath>.\Hardware\bsp_motor_iic.h</FilePath>
             </File>
             <File>
-              <FileName>bsp_timer.h</FileName>
-              <FileType>5</FileType>
-              <FilePath>.\Hardware\bsp_timer.h</FilePath>
-            </File>
-            <File>
               <FileName>bsp_usart.h</FileName>
               <FileType>5</FileType>
               <FilePath>.\Hardware\bsp_usart.h</FilePath>
@@ -561,11 +556,6 @@
               <FileName>bsp_motor_iic.c</FileName>
               <FileType>1</FileType>
               <FilePath>.\Hardware\bsp_motor_iic.c</FilePath>
-            </File>
-            <File>
-              <FileName>bsp_timer.c</FileName>
-              <FileType>1</FileType>
-              <FilePath>.\Hardware\bsp_timer.c</FilePath>
             </File>
             <File>
               <FileName>bsp_usart.c</FileName>
@@ -671,6 +661,16 @@
               <FileName>bsp_key.h</FileName>
               <FileType>5</FileType>
               <FilePath>.\Hardware\bsp_key.h</FilePath>
+            </File>
+            <File>
+              <FileName>bsp_systick.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>.\Hardware\bsp_systick.c</FilePath>
+            </File>
+            <File>
+              <FileName>bsp_systick.h</FileName>
+              <FileType>5</FileType>
+              <FilePath>.\Hardware\bsp_systick.h</FilePath>
             </File>
           </Files>
         </Group>
