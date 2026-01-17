@@ -47,22 +47,15 @@ void Stats_Init(void)
   */
 void Stats_Update(uint32_t deltaMs)
 {
-    /* 更新运行时间 - 累加毫秒 */
+    /* 更新运行时间 */
     g_stats.runTime_ms += deltaMs;
     
-    /* 检查是否满1秒 (1000ms) */
-    if (g_stats.runTime_ms >= 1000UL)
-    {
-        g_stats.runTime_ms -= 1000UL;  /* 减去1秒，保留余数 */
-        g_stats.runTime_sec++;          /* 秒+1 */
-        
-        /* 检查是否满60秒 */
-        if (g_stats.runTime_sec >= 60)
-        {
-            g_stats.runTime_sec = 0;    /* 秒归零 */
-            g_stats.runTime_min++;      /* 分钟+1 */
-        }
-    }
+    /* 转换为秒和分钟 - 使用临时变量避免优化问题 */
+    uint32_t totalMs = g_stats.runTime_ms;
+    uint32_t totalSec = totalMs / 1000UL;
+    
+    g_stats.runTime_sec = (uint16_t)totalSec;
+    g_stats.runTime_min = (uint16_t)(totalSec / 60UL);
     
     /* 更新距离 (如果有速度数据) */
     if (g_stats.currentSpeed > 0.0f)
@@ -123,7 +116,7 @@ void Stats_Reset(void)
 void Stats_GetTimeString(char *buf)
 {
     uint16_t min = g_stats.runTime_min;
-    uint16_t sec = g_stats.runTime_sec;  /* 已经是0-59，不需要取模 */
+    uint16_t sec = g_stats.runTime_sec % 60;
     
     /* 格式化为 "MM:SS" */
     buf[0] = '0' + (min / 10) % 10;

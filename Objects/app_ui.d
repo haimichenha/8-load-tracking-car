@@ -36,3 +36,6 @@
 .\objects\app_ui.o: F:\keil5\keil\MDK\ARM\ARMCC\Bin\..\include\string.h
 .\objects\app_ui.o: Hardware\REG.h
 .\objects\app_ui.o: Hardware\app_stats.h
+.\objects\app_ui.o: Hardware\bsp_systick.h
+.\objects\app_ui.o: Hardware\bsp_key.h
+.\objects\app_ui.o: Hardware\bsp_led.h

@@ -52,6 +52,7 @@
 .\objects\main.o: .\Hardware\wit_c_sdk.h
 .\objects\main.o: .\Hardware\REG.h
 .\objects\main.o: .\Hardware\bsp_key.h
+.\objects\main.o: .\Hardware\bsp_systick.h
+.\objects\main.o: .\Hardware\bsp_led.h
 .\objects\main.o: .\Hardware\app_ui.h
 .\objects\main.o: .\Hardware\app_stats.h
-.\objects\main.o: .\Hardware\bsp_systick.h

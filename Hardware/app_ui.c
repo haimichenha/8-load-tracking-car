@@ -13,6 +13,9 @@
 #include "OLED.h"
 #include "JY301P.h"
 #include "app_stats.h"
+#include "bsp_systick.h"
+#include "bsp_key.h"
+#include "bsp_led.h"
 #include <string.h>
 
 /*====================================================================================*/
@@ -97,11 +100,7 @@ void UI_SetPage(UI_Page_t page)
   * @param  trackData: 8位循迹原始数据
   * @note   传感器排列假设: [S7][S6][S5][S4][S3][S2][S1][S0]
   *         S7=最左侧, S0=最右侧
-  *         
-  *         传感器状态说明 (需根据实际硬件确认):
-  *         - 如果是 1=检测到黑线(遮挡), 0=未检测到(悬空)
-  *         - 如果是 0=检测到黑线(遮挡), 1=未检测到(悬空)
-  *         请根据实际情况修改下面的解析逻辑
+  *         1=检测到黑线(遮挡), 0=未检测到
   */
 void UI_UpdateTrackingAnalysis(uint8_t trackData)
 {
@@ -111,9 +110,6 @@ void UI_UpdateTrackingAnalysis(uint8_t trackData)
     uint8_t firstActive = 0xFF;
     uint8_t lastActive = 0xFF;
     
-    /* 位置权重表: 传感器0-7对应权重 -3, -2, -1, 0, 0, 1, 2, 3 */
-    static const int8_t posWeight[8] = {-3, -2, -1, 0, 0, 1, 2, 3};
-    
     g_trackAnalysis.rawData = trackData;
     
     /* 解析每个传感器状态 */
@@ -122,20 +118,14 @@ void UI_UpdateTrackingAnalysis(uint8_t trackData)
         /* 位7对应传感器0(最左), 位0对应传感器7(最右) */
         g_trackAnalysis.sensorStatus[i] = (trackData >> (7 - i)) & 0x01;
         
-        /* 
-         * 判断是否被遮挡 (根据实际硬件修改):
-         * 方案A: sensorStatus[i] == 1 表示被遮挡
-         * 方案B: sensorStatus[i] == 0 表示被遮挡
-         * 当前使用方案A
-         */
-        if (g_trackAnalysis.sensorStatus[i])  // 1=被遮挡
+        if (g_trackAnalysis.sensorStatus[i])
         {
             activeCount++;
             if (firstActive == 0xFF) firstActive = i;
             lastActive = i;
             
-            /* 使用权重表计算偏移量 */
-            weightedSum += posWeight[i];  // 权重: -3, -2, -1, 0, 0, 1, 2, 3
+            /* 加权计算偏移量: 位置0-7对应权重-3到+3 */
+            weightedSum += (int16_t)(i * 2) - 7;
         }
     }
     
@@ -231,141 +221,220 @@ void UI_Display(uint8_t trackData, uint8_t trackOK)
 
 /**
   * @brief  显示综合信息页
-  * @note   第1行: Roll Pitch
-  *         第2行: Yaw + 二进制循迹
-  *         第3行: 运行时间 + 速度
-  *         第4行: 状态
+  * @note   第1行: 二进制循迹 + 状态
+  *         第2行: Roll Pitch
+  *         第3行: Yaw + 运行时间
+  *         第4行: Spd + k: + l:
   */
 void UI_DisplayOverview(uint8_t trackData, uint8_t trackOK)
 {
     uint8_t i;
     char timeBuf[8];
+    uint8_t lpLevel;
+    uint32_t pressTime;
     
-    /* 第1行: Roll和Pitch角度 */
-    OLED_ShowString(1, 1, "R:");
-    OLED_ShowSignedNum(1, 3, (int32_t)g_jy301p_data.angle[0], 4);
-    OLED_ShowString(1, 9, "P:");
-    OLED_ShowSignedNum(1, 11, (int32_t)g_jy301p_data.angle[1], 4);
+    /* 综合页面LED控制: 两个LED都亮 */
+    LED1_ON();   /* PB9 绿色LED亮 */
+    LED2_ON();   /* PE0 红色LED亮 */
     
-    /* 第2行: Yaw + 二进制循迹 */
-    OLED_ShowString(2, 1, "Y:");
-    OLED_ShowSignedNum(2, 3, (int32_t)g_jy301p_data.angle[2], 4);
-    OLED_ShowString(2, 8, " ");
+    /* 第1行: 二进制循迹 + 状态 */
     for (i = 0; i < 8; i++)
     {
-        OLED_ShowChar(2, 9 + i, g_trackAnalysis.sensorStatus[i] ? '1' : '0');
+        OLED_ShowChar(1, 1 + i, g_trackAnalysis.sensorStatus[i] ? '1' : '0');
     }
-    
-    /* 第3行: 运行时间 + 速度 */
-    Stats_GetTimeString(timeBuf);
-    OLED_ShowString(3, 1, "T:");
-    OLED_ShowString(3, 3, timeBuf);
-    OLED_ShowString(3, 9, "Spd:");
-    OLED_ShowSignedNum(3, 13, (int32_t)(g_stats.currentSpeed * 100), 4);
-    
-    /* 第4行: 状态 + HEX */
+    OLED_ShowString(1, 10, " ");
     if (trackOK == 0)
     {
-        OLED_ShowString(4, 1, "OK ");
+        OLED_ShowString(1, 11, "ok   ");
     }
     else
     {
-        OLED_ShowString(4, 1, "ERR");
+        OLED_ShowString(1, 11, "ERR  ");
     }
-    OLED_ShowString(4, 5, "H:");
-    OLED_ShowHexNum(4, 7, trackData, 2);
-    OLED_ShowString(4, 10, "Off:");
-    OLED_ShowSignedNum(4, 14, g_trackAnalysis.offset, 2);
+    
+    /* 第2行: Roll Pitch */
+    OLED_ShowString(2, 1, "R:");
+    OLED_ShowSignedNum(2, 3, (int32_t)g_jy301p_data.angle[0], 4);
+    OLED_ShowString(2, 9, "P:");
+    OLED_ShowSignedNum(2, 11, (int32_t)g_jy301p_data.angle[1], 4);
+    OLED_ShowString(2, 16, " ");
+    
+    /* 第3行: Yaw + 运行时间 */
+    OLED_ShowString(3, 1, "Y:");
+    OLED_ShowSignedNum(3, 3, (int32_t)g_jy301p_data.angle[2], 4);
+    SysTick_GetTimeString(timeBuf);
+    OLED_ShowString(3, 9, "T:");
+    OLED_ShowString(3, 11, timeBuf);
+    OLED_ShowString(3, 16, " ");
+    
+    /* 第4行: Spd + k: + l: */
+    pressTime = Key_GetPressTime();
+    lpLevel = Key_GetLongPressLevel();
+    
+    OLED_ShowString(4, 1, "S:");
+    OLED_ShowNum(4, 3, (uint32_t)(g_stats.currentSpeed * 10), 2);
+    
+    OLED_ShowString(4, 6, "k:");
+    if (pressTime > 0)
+    {
+        uint8_t kVal = (uint8_t)((pressTime / 100) % 10);
+        OLED_ShowNum(4, 8, kVal, 1);
+    }
+    else
+    {
+        OLED_ShowString(4, 8, "0");
+    }
+    
+    OLED_ShowString(4, 10, "l:");
+    if (lpLevel > 0)
+    {
+        OLED_ShowNum(4, 12, lpLevel, 1);
+    }
+    else
+    {
+        OLED_ShowString(4, 12, "0");
+    }
+    
+    OLED_ShowString(4, 13, "    ");
 }
 
 /**
   * @brief  显示循迹详情页
-  * @note   第1行: 标题
-  *         第2行: 二进制 + HEX
-  *         第3行: 偏移量 + 边缘位置
-  *         第4行: 传感器状态标注
+  * @note   第1行: 二进制信息
+  *         第2行: 偏移量 + 状态
+  *         第3行: ZD:1遮挡 ND:0未遮挡 (提示)
+  *         第4行: Spd + k: + l:
   */
 void UI_DisplayTracking(uint8_t trackData, uint8_t trackOK)
 {
     uint8_t i;
-    const char *edgeStr[] = {"NONE", "LEFT", "MID ", "RGHT", "FULL"};
+    uint32_t pressTime;
+    uint8_t lpLevel;
     
-    /* 第1行: 标题 */
-    OLED_ShowString(1, 1, "=== TRACKING ===");
+    /* 循迹页面LED控制: B9亮, E0灭 */
+    LED1_ON();   /* PB9 绿色LED亮 */
+    LED2_OFF();  /* PE0 红色LED灭 */
     
-    /* 第2行: 二进制 + HEX */
-    OLED_ShowString(2, 1, "B:");
+    /* 第1行: 二进制信息 */
     for (i = 0; i < 8; i++)
     {
-        OLED_ShowChar(2, 3 + i, g_trackAnalysis.sensorStatus[i] ? '1' : '0');
+        OLED_ShowChar(1, 1 + i, g_trackAnalysis.sensorStatus[i] ? '1' : '0');
     }
-    OLED_ShowString(2, 12, "H:");
-    OLED_ShowHexNum(2, 14, trackData, 2);
+    OLED_ShowString(1, 10, " H:");
+    OLED_ShowHexNum(1, 13, trackData, 2);
+    OLED_ShowString(1, 15, " ");
     
-    /* 第3行: 偏移量 + 边缘位置 */
-    OLED_ShowString(3, 1, "Off:");
-    OLED_ShowSignedNum(3, 5, g_trackAnalysis.offset, 2);
-    OLED_ShowString(3, 9, "E:");
-    if (g_trackAnalysis.edgePosition <= 4)
-    {
-        OLED_ShowString(3, 11, (char*)edgeStr[g_trackAnalysis.edgePosition]);
-    }
-    
-    /* 第4行: 传感器标注 S7...S0 遮挡状态 */
-    OLED_ShowString(4, 1, "S:");
-    for (i = 0; i < 8; i++)
-    {
-        /* 显示传感器编号或遮挡标记 */
-        if (g_trackAnalysis.sensorStatus[i])
-        {
-            OLED_ShowChar(4, 3 + i, '#');  // 遮挡用#表示
-        }
-        else
-        {
-            OLED_ShowChar(4, 3 + i, '_');  // 未遮挡用_表示
-        }
-    }
-    
-    /* 状态指示 */
+    /* 第2行: 偏移量 + 状态 */
+    OLED_ShowString(2, 1, "Off:");
+    OLED_ShowSignedNum(2, 5, g_trackAnalysis.offset, 3);
+    OLED_ShowString(2, 9, " ");
     if (trackOK == 0)
     {
-        OLED_ShowString(4, 13, "OK ");
+        OLED_ShowString(2, 10, "ok ");
     }
     else
     {
-        OLED_ShowString(4, 13, "ERR");
+        OLED_ShowString(2, 10, "ERR   ");
     }
+    
+    /* 第3行: ZD:1遮挡 ND:0未遮挡 (固定提示) */
+    OLED_ShowString(3, 1, "ZD:1 Y ND:0 N");
+    
+    /* 第4行: Spd + k: + l: (与综合页面一致) */
+    pressTime = Key_GetPressTime();
+    lpLevel = Key_GetLongPressLevel();
+    
+    OLED_ShowString(4, 1, "S:");
+    OLED_ShowNum(4, 3, (uint32_t)(g_stats.currentSpeed * 10), 2);
+    
+    OLED_ShowString(4, 6, "k:");
+    if (pressTime > 0)
+    {
+        uint8_t kVal = (uint8_t)((pressTime / 100) % 10);
+        OLED_ShowNum(4, 8, kVal, 1);
+    }
+    else
+    {
+        OLED_ShowString(4, 8, "0");
+    }
+    
+    OLED_ShowString(4, 10, "l:");
+    if (lpLevel > 0)
+    {
+        OLED_ShowNum(4, 12, lpLevel, 1);
+    }
+    else
+    {
+        OLED_ShowString(4, 12, "0");
+    }
+    
+    OLED_ShowString(4, 13, "    ");
 }
 
 /**
-  * @brief  显示陀螺仪详情页
-  * @note   第1行: 标题
-  *         第2行: Roll Pitch Yaw
-  *         第3行: 角速度
-  *         第4行: 最大速度 + 距离预留
+  * @brief  显示陀螺仪/路程页面
+  * @note   第1行: Roll Pitch
+  *         第2行: Yaw + 速度
+  *         第3行: 距离(预留编码器)
+  *         第4行: Spd + k: + l:
   */
 void UI_DisplayGyroscope(void)
 {
-    /* 第1行: 标题 */
-    OLED_ShowString(1, 1, "=== GYROSCOPE ==");
+    uint32_t pressTime;
+    uint8_t lpLevel;
     
-    /* 第2行: 三轴角度 */
-    OLED_ShowString(2, 1, "R:");
-    OLED_ShowSignedNum(2, 3, (int32_t)g_jy301p_data.angle[0], 4);
-    OLED_ShowString(2, 8, "P:");
-    OLED_ShowSignedNum(2, 10, (int32_t)g_jy301p_data.angle[1], 4);
+    /* 陀螺仪页面LED控制: E0亮, B9灭 */
+    LED1_OFF();  /* PB9 绿色LED灭 */
+    LED2_ON();   /* PE0 红色LED亮 */
     
-    /* 第3行: Yaw + 角速度Z */
-    OLED_ShowString(3, 1, "Y:");
-    OLED_ShowSignedNum(3, 3, (int32_t)g_jy301p_data.angle[2], 4);
-    OLED_ShowString(3, 8, "GZ:");
-    OLED_ShowSignedNum(3, 11, (int32_t)g_jy301p_data.gyro[2], 4);
+    /* 第1行: Roll Pitch */
+    OLED_ShowString(1, 1, "R:");
+    OLED_ShowSignedNum(1, 3, (int32_t)g_jy301p_data.angle[0], 4);
+    OLED_ShowString(1, 9, "P:");
+    OLED_ShowSignedNum(1, 11, (int32_t)g_jy301p_data.angle[1], 4);
+    OLED_ShowString(1, 16, " ");
     
-    /* 第4行: 最大速度 + 距离预留 */
-    OLED_ShowString(4, 1, "MaxV:");
-    OLED_ShowSignedNum(4, 6, (int32_t)(g_stats.maxSpeed * 100), 3);
-    OLED_ShowString(4, 10, "D:");
-    OLED_ShowSignedNum(4, 12, (int32_t)(g_stats.totalDistance * 10), 4);
+    /* 第2行: Yaw + 速度 */
+    OLED_ShowString(2, 1, "Y:");
+    OLED_ShowSignedNum(2, 3, (int32_t)g_jy301p_data.angle[2], 4);
+    OLED_ShowString(2, 9, "V:");
+    OLED_ShowNum(2, 11, (uint32_t)(g_stats.currentSpeed * 100), 4);
+    OLED_ShowString(2, 16, " ");
+    
+    /* 第3行: 距离(预留编码器) */
+    OLED_ShowString(3, 1, "Dist:");
+    OLED_ShowNum(3, 6, (uint32_t)(g_stats.totalDistance * 100), 5);
+    OLED_ShowString(3, 11, "cm    ");
+    
+    /* 第4行: Spd + k: + l: (与其他页面一致) */
+    pressTime = Key_GetPressTime();
+    lpLevel = Key_GetLongPressLevel();
+    
+    OLED_ShowString(4, 1, "S:");
+    OLED_ShowNum(4, 3, (uint32_t)(g_stats.currentSpeed * 10), 2);
+    
+    OLED_ShowString(4, 6, "k:");
+    if (pressTime > 0)
+    {
+        uint8_t kVal = (uint8_t)((pressTime / 100) % 10);
+        OLED_ShowNum(4, 8, kVal, 1);
+    }
+    else
+    {
+        OLED_ShowString(4, 8, "0");
+    }
+    
+    OLED_ShowString(4, 10, "l:");
+    if (lpLevel > 0)
+    {
+        OLED_ShowNum(4, 12, lpLevel, 1);
+    }
+    else
+    {
+        OLED_ShowString(4, 12, "0");
+    }
+    
+    OLED_ShowString(4, 13, "    ");
 }
 
 /**
@@ -378,6 +447,10 @@ void UI_DisplayGyroscope(void)
 void UI_DisplayStats(void)
 {
     char timeBuf[8];
+    
+    /* 统计页面LED控制: 两个LED交替闪烁效果 */
+    LED1_TOGGLE();
+    LED2_TOGGLE();
     
     /* 第1行: 标题 */
     OLED_ShowString(1, 1, "== STATISTICS ==");

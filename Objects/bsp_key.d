@@ -29,4 +29,5 @@
 .\objects\bsp_key.o: .\Library\stm32f10x_usart.h
 .\objects\bsp_key.o: .\Library\stm32f10x_wwdg.h
 .\objects\bsp_key.o: .\Library\misc.h
+.\objects\bsp_key.o: Hardware\bsp_systick.h
 .\objects\bsp_key.o: .\System\Delay.h

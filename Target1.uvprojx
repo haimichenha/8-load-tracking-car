@@ -672,6 +672,16 @@
               <FileType>5</FileType>
               <FilePath>.\Hardware\bsp_systick.h</FilePath>
             </File>
+            <File>
+              <FileName>bsp_led.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>.\Hardware\bsp_led.c</FilePath>
+            </File>
+            <File>
+              <FileName>bsp_led.h</FileName>
+              <FileType>5</FileType>
+              <FilePath>.\Hardware\bsp_led.h</FilePath>
+            </File>
           </Files>
         </Group>
         <Group>

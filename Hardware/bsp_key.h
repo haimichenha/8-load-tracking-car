@@ -32,8 +32,8 @@ typedef enum {
 #define KEY_GPIO_CLK        RCC_APB2Periph_GPIOC
 
 /* 时间参数 (单位: ms) */
-#define KEY_DEBOUNCE_TIME   1       // 消抖时间（极短）
-#define KEY_LONG_TIME       16      // 长按阈值
+#define KEY_DEBOUNCE_TIME   20      // 消抖时间
+#define KEY_LONG_TIME       800    // 长按阈值
 
 /*====================================================================================*/
 /*                                  函数声明                                           */
@@ -76,5 +76,17 @@ void Key_Reset(void);
   * @retval 状态值: 0=IDLE, 1=PRESSED, 2=LONG_WAIT
   */
 uint8_t Key_GetState(void);
+
+/**
+  * @brief  获取按键按下持续时间
+  * @retval 按下时间(ms)，未按下返回0
+  */
+uint32_t Key_GetPressTime(void);
+
+/**
+  * @brief  获取长按计时等级 (1-9)
+  * @retval 0=未长按, 1-9=长按等级
+  */
+uint8_t Key_GetLongPressLevel(void);
 
 #endif /* __BSP_KEY_H */
