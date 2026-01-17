@@ -54,5 +54,6 @@
 .\objects\main.o: .\Hardware\bsp_key.h
 .\objects\main.o: .\Hardware\bsp_systick.h
 .\objects\main.o: .\Hardware\bsp_led.h
+.\objects\main.o: .\Hardware\bsp_buzzer.h
 .\objects\main.o: .\Hardware\app_ui.h
 .\objects\main.o: .\Hardware\app_stats.h

@@ -682,6 +682,26 @@
               <FileType>5</FileType>
               <FilePath>.\Hardware\bsp_led.h</FilePath>
             </File>
+            <File>
+              <FileName>bsp_buzzer.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>.\Hardware\bsp_buzzer.c</FilePath>
+            </File>
+            <File>
+              <FileName>bsp_buzzer.h</FileName>
+              <FileType>5</FileType>
+              <FilePath>.\Hardware\bsp_buzzer.h</FilePath>
+            </File>
+            <File>
+              <FileName>bsp_pwm.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>.\Hardware\bsp_pwm.c</FilePath>
+            </File>
+            <File>
+              <FileName>bsp_pwm.h</FileName>
+              <FileType>5</FileType>
+              <FilePath>.\Hardware\bsp_pwm.h</FilePath>
+            </File>
           </Files>
         </Group>
         <Group>

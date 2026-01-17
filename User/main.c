@@ -9,6 +9,7 @@
 #include "bsp_key.h"
 #include "bsp_systick.h"
 #include "bsp_led.h"
+#include "bsp_buzzer.h"
 #include "app_ui.h"
 #include "app_stats.h"
 #include <stdio.h>
@@ -56,6 +57,9 @@ int main(void)
     
     /* 初始化统计模块 */
     Stats_Init();
+    
+    /* 初始化蜂鸣器 (PB8 PWM) */
+    Buzzer_Init();
     
     /* 初始化UI模块 */
     UI_Init();
@@ -113,6 +117,33 @@ int main(void)
         /*=== 步骤2：更新统计数据（不依赖I2C）===*/
         Stats_Update(LOOP_PERIOD_MS);
         Stats_UpdateAngularSpeed(g_jy301p_data.gyro[2]);
+        
+        /*=== 步骤2.5：蜂鸣器状态机更新 ===*/
+        Buzzer_Update(LOOP_PERIOD_MS);
+        
+        /* 检测循迹激活 */
+        if (track_hw != 0x00 && track_hw != 0xFF)
+        {
+            Buzzer_StartTiming();
+        }
+        
+        /* 检测1分钟提醒和终点条件 */
+        if (Buzzer_IsTimingStarted())
+        {
+            if (Buzzer_CheckOneMinute(SysTick_GetMs()))
+            {
+                Buzzer_BeepTwice();
+            }
+            
+            if (Buzzer_CheckFinish(track_hw, 
+                                   g_jy301p_data.angle[0],
+                                   g_jy301p_data.angle[1],
+                                   g_jy301p_data.angle[2],
+                                   SysTick_GetMs()))
+            {
+                Buzzer_BeepTriple();
+            }
+        }
         
         /*=== 步骤3：读取循迹模块（硬件I2C）===*/
         /* 确保硬件I2C已启用 */
