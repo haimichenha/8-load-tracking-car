@@ -29,3 +29,4 @@
 .\objects\bsp_systick.o: .\Library\stm32f10x_usart.h
 .\objects\bsp_systick.o: .\Library\stm32f10x_wwdg.h
 .\objects\bsp_systick.o: .\Library\misc.h
+.\objects\bsp_systick.o: Hardware\bsp_key2.h

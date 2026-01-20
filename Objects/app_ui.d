@@ -38,4 +38,4 @@
 .\objects\app_ui.o: Hardware\app_stats.h
 .\objects\app_ui.o: Hardware\bsp_systick.h
 .\objects\app_ui.o: Hardware\bsp_key.h
-.\objects\app_ui.o: Hardware\bsp_led.h
+.\objects\app_ui.o: Hardware\bsp_led_pwm.h

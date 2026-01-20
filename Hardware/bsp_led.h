@@ -21,7 +21,7 @@
 
 /* LED2 红色 - PE0 (根据电路图修正) */
 #define LED2_GPIO_PORT      GPIOE
-#define LED2_GPIO_PIN       GPIO_Pin_0
+#define LED2_GPIO_PIN      GPIO_Pin_0
 #define LED2_GPIO_CLK       RCC_APB2Periph_GPIOE
 
 /*====================================================================================*/

@@ -15,7 +15,7 @@
 #include "app_stats.h"
 #include "bsp_systick.h"
 #include "bsp_key.h"
-#include "bsp_led.h"
+#include "bsp_led_pwm.h"
 #include <string.h>
 
 /*====================================================================================*/
@@ -233,9 +233,15 @@ void UI_DisplayOverview(uint8_t trackData, uint8_t trackOK)
     uint8_t lpLevel;
     uint32_t pressTime;
     
-    /* 综合页面LED控制: 两个LED都亮 */
-    LED1_ON();   /* PB9 绿色LED亮 */
-    LED2_ON();   /* PE0 红色LED亮 */
+    /* 综合页面LED控制: 两个LED都亮，使用保存的亮度 */
+    /* 终点效果期间不控制LED */
+    if (!LED_IsFinishEffectPlaying())
+    {
+        LED_SetBrightness(LED_GREEN, LED_GetSavedBrightness(LED_GREEN));
+        LED_SetBrightness(LED_RED, LED_GetSavedBrightness(LED_RED));
+        LED_Switch(LED_GREEN, 1);   /* PB9 绿色LED开启 */
+        LED_Switch(LED_RED, 1);     /* PE0 红色LED开启 */
+    }
     
     /* 第1行: 二进制循迹 + 状态 */
     for (i = 0; i < 8; i++)
@@ -311,9 +317,14 @@ void UI_DisplayTracking(uint8_t trackData, uint8_t trackOK)
     uint32_t pressTime;
     uint8_t lpLevel;
     
-    /* 循迹页面LED控制: B9亮, E0灭 */
-    LED1_ON();   /* PB9 绿色LED亮 */
-    LED2_OFF();  /* PE0 红色LED灭 */
+    /* 循迹页面LED控制: B9亮, E0灭，使用保存的亮度 */
+    /* 终点效果期间不控制LED */
+    if (!LED_IsFinishEffectPlaying())
+    {
+        LED_SetBrightness(LED_GREEN, LED_GetSavedBrightness(LED_GREEN));
+        LED_Switch(LED_GREEN, 1);   /* PB9 绿色LED开启 */
+        LED_Switch(LED_RED, 0);     /* PE0 红色LED关闭 */
+    }
     
     /* 第1行: 二进制信息 */
     for (i = 0; i < 8; i++)
@@ -383,9 +394,14 @@ void UI_DisplayGyroscope(void)
     uint32_t pressTime;
     uint8_t lpLevel;
     
-    /* 陀螺仪页面LED控制: E0亮, B9灭 */
-    LED1_OFF();  /* PB9 绿色LED灭 */
-    LED2_ON();   /* PE0 红色LED亮 */
+    /* 陀螺仪页面LED控制: E0亮, B9灭，使用保存的亮度 */
+    /* 终点效果期间不控制LED */
+    if (!LED_IsFinishEffectPlaying())
+    {
+        LED_SetBrightness(LED_RED, LED_GetSavedBrightness(LED_RED));
+        LED_Switch(LED_GREEN, 0);   /* PB9 绿色LED关闭 */
+        LED_Switch(LED_RED, 1);     /* PE0 红色LED开启 */
+    }
     
     /* 第1行: Roll Pitch */
     OLED_ShowString(1, 1, "R:");
@@ -447,10 +463,18 @@ void UI_DisplayGyroscope(void)
 void UI_DisplayStats(void)
 {
     char timeBuf[8];
+    static uint8_t toggleState = 0;
     
-    /* 统计页面LED控制: 两个LED交替闪烁效果 */
-    LED1_TOGGLE();
-    LED2_TOGGLE();
+    /* 统计页面LED控制: 两个LED交替闪烁效果，使用保存的亮度 */
+    /* 终点效果期间不控制LED */
+    if (!LED_IsFinishEffectPlaying())
+    {
+        LED_SetBrightness(LED_GREEN, LED_GetSavedBrightness(LED_GREEN));
+        LED_SetBrightness(LED_RED, LED_GetSavedBrightness(LED_RED));
+        toggleState = !toggleState;
+        LED_Switch(LED_GREEN, toggleState);
+        LED_Switch(LED_RED, !toggleState);
+    }
     
     /* 第1行: 标题 */
     OLED_ShowString(1, 1, "== STATISTICS ==");

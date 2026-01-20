@@ -7,8 +7,10 @@
 #include "JY301P.h"
 #include "IOI2C.h"
 #include "bsp_key.h"
+#include "bsp_key2.h"
 #include "bsp_systick.h"
 #include "bsp_led.h"
+#include "bsp_led_pwm.h"
 #include "bsp_buzzer.h"
 #include "app_ui.h"
 #include "app_stats.h"
@@ -41,19 +43,24 @@ int main(void)
     uint8_t track_hw = 0x00;      // 硬件I2C读取的循迹数据
     uint8_t hw_result = 0;        // 硬件I2C返回值
     uint8_t fail_count = 0;       // 连续失败计数
-    KeyEvent_t keyEvent;          // 按键事件
+    KeyEvent_t keyEvent;          // PC5按键事件
+    Key2Event_t key2Event;        // PC4按键事件 (亮度调节)
     
     /*========== 第一阶段：初始化 ==========*/
     
     /* 初始化系统滴答定时器 (TIM2, 1ms中断) - 必须最先初始化 */
     SysTick_Init();
     
-    /* 初始化LED (PB9绿色, PE6红色) */
-    LED_Init();
-    LED_SetAll(1);  /* 两个LED常亮 */
+    /* 初始化LED PWM模块 (PB9绿色, PE0红色, PE1指示灯) - 使用TIM3 */
+    LED_PWM_Init();
+    LED_Switch(LED_GREEN, 1);   /* 绿色LED开启 */
+    LED_Switch(LED_RED, 1);     /* 红色LED开启 */
     
-    /* 初始化按键 (PC5) - 独立引脚，不受I2C影响 */
+    /* 初始化按键 (PC5) - 页面切换 */
     Key_Init();
+    
+    /* 初始化按键2 (PC4) - 亮度调节 */
+    Key2_Init();
     
     /* 初始化统计模块 */
     Stats_Init();
@@ -97,22 +104,66 @@ int main(void)
         
         /*=== 步骤1：按键扫描（独立引脚，随时可用）===*/
         keyEvent = Key_ScanWithTime(LOOP_PERIOD_MS);
+        key2Event = Key2_GetEvent();
+        Key2_ClearEvent();
         
-        if (keyEvent == KEY_EVENT_SHORT)
+        /* 亮度调节模式处理 */
+        if (LED_GetAdjustMode() == BRIGHTNESS_MODE_ADJUST)
         {
-            UI_NextPage();
+            /* 在亮度调节模式中 */
+            if (key2Event == KEY2_EVENT_SHORT)
+            {
+                /* 短按PC4: 改变占空比 (亮度等级循环) */
+                LED_ChangeBrightnessStep();
+            }
+            
+            /* 长按PC4退出，或者PC5任何操作也退出模式 */
+            if (key2Event == KEY2_EVENT_LONG || keyEvent == KEY_EVENT_SHORT || keyEvent == KEY_EVENT_LONG)
+            {
+                LED_ExitAdjustMode();
+                LED_IndicatorBlink2();  /* 退出时指示灯闪烁 */
+                
+                if (keyEvent == KEY_EVENT_SHORT)
+                {
+                    UI_NextPage();
+                }
+                else if (keyEvent == KEY_EVENT_LONG)
+                {
+                    if (UI_IsShowingStats()) UI_HideStats();
+                    else UI_ShowStats();
+                }
+            }
         }
-        else if (keyEvent == KEY_EVENT_LONG)
+        else
         {
-            if (UI_IsShowingStats())
+            /* 正常模式 */
+            if (key2Event == KEY2_EVENT_LONG)
             {
-                UI_HideStats();
+                /* 长按PC4: 进入亮度调节模式 */
+                LED_EnterAdjustMode();
             }
-            else
+            
+            if (keyEvent == KEY_EVENT_SHORT)
             {
-                UI_ShowStats();
+                LED_IndicatorBlink2();  /* 指示灯闪烁两次 */
+                UI_NextPage();
+            }
+            else if (keyEvent == KEY_EVENT_LONG)
+            {
+                LED_IndicatorBlink2();  /* 指示灯闪烁两次 */
+                if (UI_IsShowingStats())
+                {
+                    UI_HideStats();
+                }
+                else
+                {
+                    UI_ShowStats();
+                }
             }
         }
+        
+        /*=== 步骤1.5：LED亮度调节模式更新 ===*/
+        LED_AdjustModeUpdate(LOOP_PERIOD_MS);
         
         /*=== 步骤2：更新统计数据（不依赖I2C）===*/
         Stats_Update(LOOP_PERIOD_MS);
@@ -142,6 +193,7 @@ int main(void)
                                    SysTick_GetMs()))
             {
                 Buzzer_BeepTriple();
+                LED_StartFinishEffect();  /* 终点流水灯效果 */
             }
         }
         

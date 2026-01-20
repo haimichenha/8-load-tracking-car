@@ -702,6 +702,26 @@
               <FileType>5</FileType>
               <FilePath>.\Hardware\bsp_pwm.h</FilePath>
             </File>
+            <File>
+              <FileName>bsp_key2.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>.\Hardware\bsp_key2.c</FilePath>
+            </File>
+            <File>
+              <FileName>bsp_key2.h</FileName>
+              <FileType>5</FileType>
+              <FilePath>.\Hardware\bsp_key2.h</FilePath>
+            </File>
+            <File>
+              <FileName>bsp_led_pwm.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>.\Hardware\bsp_led_pwm.c</FilePath>
+            </File>
+            <File>
+              <FileName>bsp_led_pwm.h</FileName>
+              <FileType>5</FileType>
+              <FilePath>.\Hardware\bsp_led_pwm.h</FilePath>
+            </File>
           </Files>
         </Group>
         <Group>

@@ -27,6 +27,8 @@
 ".\objects\bsp_led.o"
 ".\objects\bsp_buzzer.o"
 ".\objects\bsp_pwm.o"
+".\objects\bsp_key2.o"
+".\objects\bsp_led_pwm.o"
 ".\objects\startup_stm32f10x_md.o"
 ".\objects\core_cm3.o"
 ".\objects\system_stm32f10x.o"
