@@ -89,6 +89,7 @@ KeyEvent_t Key_ScanWithTime(uint32_t deltaMs)
                 if (keyLevel == 0)  // 仍然按下
                 {
                     s_keyState = KEY_STATE_PRESSED;
+                    s_pressStartTime = currentTime;
                 }
                 else  // 抖动，回到空闲
                 {
