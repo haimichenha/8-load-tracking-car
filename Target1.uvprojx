@@ -722,6 +722,16 @@
               <FileType>5</FileType>
               <FilePath>.\Hardware\bsp_led_pwm.h</FilePath>
             </File>
+            <File>
+              <FileName>bsp_encoder.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>.\Hardware\bsp_encoder.c</FilePath>
+            </File>
+            <File>
+              <FileName>bsp_encoder.h</FileName>
+              <FileType>5</FileType>
+              <FilePath>.\Hardware\bsp_encoder.h</FilePath>
+            </File>
           </Files>
         </Group>
         <Group>

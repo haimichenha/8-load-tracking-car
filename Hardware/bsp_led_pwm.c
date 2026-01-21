@@ -77,40 +77,41 @@ static void LED_GPIO_Off(LED_Index_t led)
 }
 
 /*====================================================================================*/
-/*                                  TIM1 软件PWM                                       */
+/*                                  TIM6 软件PWM                                       */
 /*====================================================================================*/
 
-void LED_TIM1_Init(void)
+void LED_TIM6_Init(void)
 {
     TIM_TimeBaseInitTypeDef TIM_TimeBaseStructure;
     NVIC_InitTypeDef NVIC_InitStructure;
-
-    /* TIM1 时钟在 APB2，总线=72MHz，预分频72得到1MHz，再/100=10kHz */
-    RCC_APB2PeriphClockCmd(RCC_APB2Periph_TIM1, ENABLE);
     
+    RCC_APB1PeriphClockCmd(RCC_APB1Periph_TIM6, ENABLE);
+    
+    /* 10kHz 中断 (0.1ms) */
+    /* TIM6时钟 = 72MHz (APB1=36MHz, x2=72MHz) */
     TIM_TimeBaseStructure.TIM_Period = 100 - 1;
     TIM_TimeBaseStructure.TIM_Prescaler = 72 - 1;
     TIM_TimeBaseStructure.TIM_ClockDivision = TIM_CKD_DIV1;
     TIM_TimeBaseStructure.TIM_CounterMode = TIM_CounterMode_Up;
-    TIM_TimeBaseInit(TIM1, &TIM_TimeBaseStructure);
+    TIM_TimeBaseInit(TIM6, &TIM_TimeBaseStructure);
     
-    TIM_ClearITPendingBit(TIM1, TIM_IT_Update);
-    TIM_ITConfig(TIM1, TIM_IT_Update, ENABLE);
+    TIM_ClearITPendingBit(TIM6, TIM_IT_Update);
+    TIM_ITConfig(TIM6, TIM_IT_Update, ENABLE);
     
-    NVIC_InitStructure.NVIC_IRQChannel = TIM1_UP_IRQn;
+    NVIC_InitStructure.NVIC_IRQChannel = TIM6_IRQn;
     NVIC_InitStructure.NVIC_IRQChannelPreemptionPriority = 1;
     NVIC_InitStructure.NVIC_IRQChannelSubPriority = 0;
     NVIC_InitStructure.NVIC_IRQChannelCmd = ENABLE;
     NVIC_Init(&NVIC_InitStructure);
     
-    TIM_Cmd(TIM1, ENABLE);
+    TIM_Cmd(TIM6, ENABLE);
 }
 
-void TIM1_UP_IRQHandler(void)
+void TIM6_IRQHandler(void)
 {
-    if (TIM_GetITStatus(TIM1, TIM_IT_Update) != RESET)
+    if (TIM_GetITStatus(TIM6, TIM_IT_Update) != RESET)
     {
-        TIM_ClearITPendingBit(TIM1, TIM_IT_Update);
+        TIM_ClearITPendingBit(TIM6, TIM_IT_Update);
         
         s_pwmCounter++;
         if (s_pwmCounter >= LED_PWM_PERIOD) s_pwmCounter = 0;
@@ -145,7 +146,7 @@ void LED_PWM_Init(void)
     LED_GPIO_Off(LED_RED);
     LED_GPIO_Off(LED_INDICATOR);
     
-    LED_TIM1_Init();
+    LED_TIM6_Init();
 }
 
 /*====================================================================================*/

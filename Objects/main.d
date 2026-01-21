@@ -55,6 +55,7 @@
 .\objects\main.o: .\Hardware\bsp_key2.h
 .\objects\main.o: .\Hardware\bsp_systick.h
 .\objects\main.o: .\Hardware\bsp_led.h
+.\objects\main.o: .\Hardware\bsp_encoder.h
 .\objects\main.o: .\Hardware\bsp_led_pwm.h
 .\objects\main.o: .\Hardware\bsp_buzzer.h
 .\objects\main.o: .\Hardware\app_ui.h
