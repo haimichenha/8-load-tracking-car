@@ -23,8 +23,7 @@
 
 
 #include "app_motor.h"
-#include "bsp_motor_iic.h"
-#include "IOI2C.h"
+#include "bsp_motor.h"
 #include "Tracking.h"
 #include "bsp_timer.h"
 

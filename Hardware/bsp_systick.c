@@ -12,7 +12,6 @@
 
 #include "bsp_systick.h"
 #include "bsp_key2.h"
-#include "bsp_led_pwm.h"
 
 /*====================================================================================*/
 /*                                  全局变量                                           */
@@ -102,9 +101,6 @@ void TIM1_UP_IRQHandler(void)
         
         /* KEY2 按键扫描 (每1ms调用) */
         Key2_Scan();
-        
-        /* LED PWM 更新 (每1ms调用) */
-        LED_PWM_Update();
     }
 }
 

@@ -6,18 +6,18 @@ void BSP_init(void)
 	
 	
 	delay_init();
-//	delay_ms(1000); //等待红外稳定    Wait for infrared to stabilize
+//	delay_ms(1000); //锟饺达拷锟斤拷锟斤拷锟饺讹拷    Wait for infrared to stabilize
 	
 	
 	USART1_init(115200);
-	USART2_init(115200);//使用串口2 接收红外    Use serial port 2 to receive infrared
+	USART2_init(115200);//使锟矫达拷锟斤拷2 锟斤拷锟秸猴拷锟斤拷    Use serial port 2 to receive infrared
 	
-    IIC_Motor_Init();//四路电机通信初始化    Four-way motor communication initialization
+	Motor_Init();
+	Motor_Enable(1);
 
-
-	//放到最后才生效，不然还是无法正常使用    It will take effect at the end, otherwise it will not work properly.
+	//锟脚碉拷锟斤拷锟斤拷锟斤拷效锟斤拷锟斤拷然锟斤拷锟斤拷锟睫凤拷锟斤拷锟斤拷使锟斤拷    It will take effect at the end, otherwise it will not work properly.
 	RCC_APB2PeriphClockCmd(RCC_APB2Periph_AFIO, ENABLE);
-	GPIO_PinRemapConfig(GPIO_Remap_SWJ_JTAGDisable, ENABLE);//禁用jlink 只用SWD调试口，PA15、PB3、4做普通IO  Disable jlink and use only SWD debug port, PA15, PB3, 4 as normal IO
+	GPIO_PinRemapConfig(GPIO_Remap_SWJ_JTAGDisable, ENABLE);//锟斤拷锟斤拷jlink 只锟斤拷SWD锟斤拷锟皆口ｏ拷PA15锟斤拷PB3锟斤拷4锟斤拷锟斤拷通IO  Disable jlink and use only SWD debug port, PA15, PB3, 4 as normal IO
 	
 	
 }

@@ -14,6 +14,7 @@
 #include "bsp_buzzer.h"
 #include "app_ui.h"
 #include "app_stats.h"
+#include "app_motor.h"
 #include <stdio.h>
 
 /*
@@ -45,6 +46,8 @@ int main(void)
     uint8_t fail_count = 0;       // 连续失败计数
     KeyEvent_t keyEvent;          // PC5按键事件
     Key2Event_t key2Event;        // PC4按键事件 (亮度调节)
+    uint32_t motorTestStartMs = 0;
+    uint32_t motorTestPhaseMs = 0;
     
     /*========== 第一阶段：初始化 ==========*/
     
@@ -96,11 +99,20 @@ int main(void)
     /* 初始化硬件I2C（用于循迹模块） */
     HW_I2C_Init();
     Delay_ms(50);
+
+    /* 电机测试初始化 */
+    Set_Motor(0);
+    motorTestStartMs = SysTick_GetMs();
+    motorTestPhaseMs = motorTestStartMs;
     
     /*========== 第二阶段：主循环 ==========*/
     while (1)
     {
+        uint32_t nowMs;
+
         g_loopCount++;
+
+        nowMs = SysTick_GetMs();
         
         /*=== 步骤1：按键扫描（独立引脚，随时可用）===*/
         keyEvent = Key_ScanWithTime(LOOP_PERIOD_MS);
@@ -164,6 +176,9 @@ int main(void)
         
         /*=== 步骤1.5：LED亮度调节模式更新 ===*/
         LED_AdjustModeUpdate(LOOP_PERIOD_MS);
+
+        /* 电机控制：保持前进，速度 90% */
+        Motion_Car_Control(900, 0, 0); 
         
         /*=== 步骤2：更新统计数据（不依赖I2C）===*/
         Stats_Update(LOOP_PERIOD_MS);
