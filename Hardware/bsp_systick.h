@@ -1,7 +1,7 @@
 /**
   * @file    bsp_systick.h
   * @brief   系统滴答定时器 - 精准计时模块
-  * @note    使用 TIM2 实现 1ms 中断，提供精准的时间基准
+   * @note    使用内核 SysTick 实现 1ms 中断，提供精准的时间基准
   */
 
 #ifndef __BSP_SYSTICK_H
@@ -32,7 +32,7 @@ extern volatile SysTick_Time_t g_sysTime;
 /*====================================================================================*/
 
 /**
-  * @brief  初始化系统滴答定时器 (TIM2, 1ms中断)
+   * @brief  初始化系统滴答定时器 (SysTick, 1ms中断)
   */
 void SysTick_Init(void);
 

@@ -10,6 +10,7 @@
 #include "bsp_key2.h"
 #include "bsp_systick.h"
 #include "bsp_led.h"
+#include "bsp_encoder.h"
 #include "bsp_led_pwm.h"
 #include "bsp_buzzer.h"
 #include "app_ui.h"
@@ -51,10 +52,13 @@ int main(void)
     /* 初始化系统滴答定时器 (TIM2, 1ms中断) - 必须最先初始化 */
     SysTick_Init();
     
-    /* 初始化LED PWM模块 (PB9绿色, PE0红色, PE1指示灯) - 使用TIM3 */
+    /* 初始化LED PWM模块 (PB9绿色, PE0红色, PE1指示灯) - 使用TIM1 软件PWM */
     LED_PWM_Init();
     LED_Switch(LED_GREEN, 1);   /* 绿色LED开启 */
     LED_Switch(LED_RED, 1);     /* 红色LED开启 */
+
+    /* 初始化编码器 (TIM2:PA0/PA1 左, TIM3:PA6/PA7 右) */
+    Encoder_Init();
     
     /* 初始化按键 (PC5) - 页面切换 */
     Key_Init();
