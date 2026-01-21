@@ -64,6 +64,11 @@ typedef enum {
 void LED_PWM_Init(void);
 
 /**
+  * @brief  LED PWM更新 (在TIM1中断中每1ms调用一次)
+  */
+void LED_PWM_Update(void);
+
+/**
   * @brief  设置LED亮度
   * @param  led: LED索引
   * @param  brightness: 亮度 (0-100)

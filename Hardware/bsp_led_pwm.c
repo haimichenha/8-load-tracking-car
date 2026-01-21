@@ -77,52 +77,24 @@ static void LED_GPIO_Off(LED_Index_t led)
 }
 
 /*====================================================================================*/
-/*                                  TIM6 软件PWM                                       */
+/*                                  软件PWM (在TIM1中断中调用)                          */
 /*====================================================================================*/
 
-void LED_TIM6_Init(void)
+/**
+  * @brief  LED PWM 更新 (每1ms调用一次，在TIM1中断中)
+  * @note   PWM周期50ms (20Hz)，足够LED调光使用
+  */
+void LED_PWM_Update(void)
 {
-    TIM_TimeBaseInitTypeDef TIM_TimeBaseStructure;
-    NVIC_InitTypeDef NVIC_InitStructure;
+    s_pwmCounter++;
+    if (s_pwmCounter >= LED_PWM_PERIOD) s_pwmCounter = 0;
     
-    RCC_APB1PeriphClockCmd(RCC_APB1Periph_TIM6, ENABLE);
-    
-    /* 10kHz 中断 (0.1ms) */
-    /* TIM6时钟 = 72MHz (APB1=36MHz, x2=72MHz) */
-    TIM_TimeBaseStructure.TIM_Period = 100 - 1;
-    TIM_TimeBaseStructure.TIM_Prescaler = 72 - 1;
-    TIM_TimeBaseStructure.TIM_ClockDivision = TIM_CKD_DIV1;
-    TIM_TimeBaseStructure.TIM_CounterMode = TIM_CounterMode_Up;
-    TIM_TimeBaseInit(TIM6, &TIM_TimeBaseStructure);
-    
-    TIM_ClearITPendingBit(TIM6, TIM_IT_Update);
-    TIM_ITConfig(TIM6, TIM_IT_Update, ENABLE);
-    
-    NVIC_InitStructure.NVIC_IRQChannel = TIM6_IRQn;
-    NVIC_InitStructure.NVIC_IRQChannelPreemptionPriority = 1;
-    NVIC_InitStructure.NVIC_IRQChannelSubPriority = 0;
-    NVIC_InitStructure.NVIC_IRQChannelCmd = ENABLE;
-    NVIC_Init(&NVIC_InitStructure);
-    
-    TIM_Cmd(TIM6, ENABLE);
-}
-
-void TIM6_IRQHandler(void)
-{
-    if (TIM_GetITStatus(TIM6, TIM_IT_Update) != RESET)
+    for (int i = 0; i < LED_COUNT; i++)
     {
-        TIM_ClearITPendingBit(TIM6, TIM_IT_Update);
-        
-        s_pwmCounter++;
-        if (s_pwmCounter >= LED_PWM_PERIOD) s_pwmCounter = 0;
-        
-        for (int i = 0; i < LED_COUNT; i++)
-        {
-            if (s_ledEnabled[i] && s_pwmCounter < s_ledBrightness[i])
-                LED_GPIO_On((LED_Index_t)i);
-            else
-                LED_GPIO_Off((LED_Index_t)i);
-        }
+        if (s_ledEnabled[i] && s_pwmCounter < s_ledBrightness[i])
+            LED_GPIO_On((LED_Index_t)i);
+        else
+            LED_GPIO_Off((LED_Index_t)i);
     }
 }
 
@@ -146,7 +118,7 @@ void LED_PWM_Init(void)
     LED_GPIO_Off(LED_RED);
     LED_GPIO_Off(LED_INDICATOR);
     
-    LED_TIM6_Init();
+    /* PWM由TIM1中断驱动，不需要单独初始化定时器 */
 }
 
 /*====================================================================================*/
