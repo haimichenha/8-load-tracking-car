@@ -85,9 +85,32 @@ uint8_t LED_GetBrightness(LED_Index_t led);
 void LED_Switch(LED_Index_t led, uint8_t state);
 
 /**
+  * @brief  获取LED开关状态
+  * @param  led: LED索引
+  * @retval 0=关, 1=开
+  */
+uint8_t LED_GetState(LED_Index_t led);
+
+/**
   * @brief  指示灯闪烁两次 (页面切换时调用)
   */
 void LED_IndicatorBlink2(void);
+
+/**
+  * @brief  启动避障提示灯效 (两两交替)
+  */
+void LED_StartObstacleEffect(void);
+
+/**
+  * @brief  检查避障提示灯效是否正在播放
+  * @retval 1=正在播放, 0=已结束
+  */
+uint8_t LED_IsObstacleEffectPlaying(void);
+
+/**
+  * @brief  避障灯效结束后请求UI刷新，使页面重新接管LED显示
+  */
+void LED_BindUIRefresh(void (*refreshFn)(void));
 
 /**
   * @brief  进入亮度调节模式

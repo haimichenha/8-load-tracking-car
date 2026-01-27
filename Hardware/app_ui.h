@@ -82,6 +82,14 @@ void UI_DisplayTracking(uint8_t trackData, uint8_t trackOK);
   */
 void UI_DisplayGyroscope(void);
 
+void UI_SetObstacleMode(uint8_t enable);
+uint8_t UI_GetObstacleMode(void);
+void UI_ShowObstacleHint(uint8_t enable);
+void UI_Tick(uint32_t deltaMs);
+void UI_RequestRefresh(void);
+
+void UI_SetUltrasonicDistance(float distanceCm);
+
 /**
   * @brief  显示统计页 (长按触发)
   */
@@ -101,5 +109,8 @@ void UI_HideStats(void);
   * @brief  检查是否在统计页
   */
 uint8_t UI_IsShowingStats(void);
+
+void UI_SetFinishMode(uint8_t enable);
+uint8_t UI_IsFinishMode(void);
 
 #endif /* __APP_UI_H */

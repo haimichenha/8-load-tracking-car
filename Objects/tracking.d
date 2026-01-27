@@ -40,10 +40,12 @@
 .\objects\tracking.o: .\Hardware\bsp_common.h
 .\objects\tracking.o: .\Hardware\bsp_usart.h
 .\objects\tracking.o: .\Hardware\app_motor.h
-.\objects\tracking.o: .\Hardware\bsp_motor_iic.h
-.\objects\tracking.o: .\Hardware\IOI2C.h
+.\objects\tracking.o: .\Hardware\bsp_motor.h
+.\objects\tracking.o: .\Hardware\bsp_encoder.h
 .\objects\tracking.o: .\Hardware\bsp_timer.h
+.\objects\tracking.o: .\Hardware\HCSR04.h
 .\objects\tracking.o: .\Hardware\app_usart.h
 .\objects\tracking.o: F:\keil5\keil\MDK\ARM\ARMCC\Bin\..\include\stdlib.h
 .\objects\tracking.o: .\Hardware\app_irtracking.h
+.\objects\tracking.o: .\Hardware\app_control.h
 .\objects\tracking.o: Hardware\HW_I2C.h

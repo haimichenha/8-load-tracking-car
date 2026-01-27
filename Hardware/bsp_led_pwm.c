@@ -42,13 +42,26 @@ static uint8_t s_finishLedIdx = 0;          /* 当前LED索引 (0=绿, 1=红, 2=
 static uint8_t s_finishPhase = 0;           /* 0=亮, 1=灭 */
 static uint16_t s_finishTimer = 0;          /* 流水灯计时器 */
 
+/* 避障提示灯效控制 (两两交替) */
+static uint8_t s_obstacleEffectActive = 0;
+static uint8_t s_obstacleStep = 0;
+static uint8_t s_obstacleRound = 0;
+static uint16_t s_obstacleTimerMs = 0;
+
 /* 终点效果参数 - 快速流水灯，持续整个蜂鸣器时间 */
 #define FINISH_ON_CALLS         1       /* 亮的调用次数 (1*50ms=50ms) */
 #define FINISH_OFF_CALLS        1       /* 灭的调用次数 (1*50ms=50ms) - 快速切换 */
 #define FINISH_ROUNDS           3       /* 3轮，约1.8秒，覆盖蜂鸣器三声 */
 
+/* 避障灯效参数 */
+#define OBSTACLE_STEP_MS        200U
+#define OBSTACLE_ROUNDS         1U
+
 /* 前向声明 */
 static void LED_FinishEffectUpdate(uint32_t deltaMs);
+static void LED_ObstacleEffectUpdate(uint32_t deltaMs);
+
+static void (*s_uiRefreshHook)(void) = 0;
 
 /*====================================================================================*/
 /*                                  GPIO操作                                           */
@@ -155,7 +168,10 @@ void LED_PWM_Init(void)
 
 void LED_SetBrightness(LED_Index_t led, uint8_t brightness)
 {
-    if (led < LED_COUNT) s_ledBrightness[led] = (brightness > 100) ? 100 : brightness;
+    if (led < LED_COUNT && !s_finishEffectActive && !s_obstacleEffectActive)
+    {
+        s_ledBrightness[led] = (brightness > 100) ? 100 : brightness;
+    }
 }
 
 uint8_t LED_GetBrightness(LED_Index_t led)
@@ -165,11 +181,23 @@ uint8_t LED_GetBrightness(LED_Index_t led)
 
 void LED_Switch(LED_Index_t led, uint8_t state)
 {
-    if (led < LED_COUNT) s_ledEnabled[led] = state ? 1 : 0;
+    if (led < LED_COUNT && !s_finishEffectActive && !s_obstacleEffectActive)
+    {
+        s_ledEnabled[led] = state ? 1 : 0;
+    }
+}
+
+uint8_t LED_GetState(LED_Index_t led)
+{
+    return (led < LED_COUNT) ? s_ledEnabled[led] : 0;
 }
 
 void LED_IndicatorBlink2(void)
 {
+    if (s_finishEffectActive || s_obstacleEffectActive)
+    {
+        return;
+    }
     s_indicatorBlinkCount = 2;
     s_indicatorTimer = 0;
     s_indicatorPhase = 1; /* 开始亮 */
@@ -225,8 +253,15 @@ void LED_AdjustModeUpdate(uint32_t deltaMs)
         LED_FinishEffectUpdate(deltaMs);
         return;  /* 终点效果期间不处理其他逻辑 */
     }
+
+    /* 1. 避障提示灯效 */
+    if (s_obstacleEffectActive)
+    {
+        LED_ObstacleEffectUpdate(deltaMs);
+        return;
+    }
     
-    /* 1. 处理指示灯闪烁 (页面切换用 - E1闪烁两次) */
+    /* 2. 处理指示灯闪烁 (页面切换用 - E1闪烁两次) */
     if (s_indicatorBlinkCount > 0)
     {
         s_indicatorTimer += deltaMs;
@@ -244,7 +279,7 @@ void LED_AdjustModeUpdate(uint32_t deltaMs)
         // s_ledEnabled[LED_INDICATOR] = 0; 
     }
     
-    /* 2. 在调节模式中，确保灯常亮以便观察亮度变化 */
+    /* 3. 在调节模式中，确保灯常亮以便观察亮度变化 */
     if (s_adjustMode == BRIGHTNESS_MODE_ADJUST)
     {
         s_ledEnabled[LED_GREEN] = 1;
@@ -265,6 +300,58 @@ uint8_t LED_GetSavedBrightness(LED_Index_t led)
 }
 
 /*====================================================================================*/
+/*                                  避障提示灯效                                       */
+/*====================================================================================*/
+
+void LED_StartObstacleEffect(void)
+{
+    if (s_finishEffectActive)
+    {
+        return;
+    }
+
+    s_obstacleEffectActive = 1;
+    s_obstacleStep = 0;
+    s_obstacleRound = 0;
+    s_obstacleTimerMs = 0;
+    s_indicatorBlinkCount = 0;
+    s_indicatorPhase = 0;
+
+    s_ledBrightness[LED_GREEN] = s_savedBrightness;
+    s_ledBrightness[LED_RED] = s_savedBrightness;
+    s_ledBrightness[LED_INDICATOR] = s_savedBrightness;
+
+    switch (s_obstacleStep)
+    {
+        case 0:
+            s_ledEnabled[LED_GREEN] = 1;
+            s_ledEnabled[LED_RED] = 1;
+            s_ledEnabled[LED_INDICATOR] = 0;
+            break;
+        case 1:
+            s_ledEnabled[LED_GREEN] = 1;
+            s_ledEnabled[LED_RED] = 0;
+            s_ledEnabled[LED_INDICATOR] = 1;
+            break;
+        default:
+            s_ledEnabled[LED_GREEN] = 0;
+            s_ledEnabled[LED_RED] = 1;
+            s_ledEnabled[LED_INDICATOR] = 1;
+            break;
+    }
+}
+
+uint8_t LED_IsObstacleEffectPlaying(void)
+{
+    return s_obstacleEffectActive;
+}
+
+void LED_BindUIRefresh(void (*refreshFn)(void))
+{
+    s_uiRefreshHook = refreshFn;
+}
+
+/*====================================================================================*/
 /*                                  终点流水灯效果                                     */
 /*====================================================================================*/
 
@@ -274,6 +361,7 @@ uint8_t LED_GetSavedBrightness(LED_Index_t led)
 void LED_StartFinishEffect(void)
 {
     s_finishEffectActive = 1;
+    s_obstacleEffectActive = 0;
     s_finishRound = 0;
     s_finishLedIdx = 0;
     s_finishPhase = 0;      /* 从亮开始 */
@@ -357,5 +445,60 @@ static void LED_FinishEffectUpdate(uint32_t deltaMs)
             /* 点亮下一个LED (100%亮度) */
             s_ledEnabled[s_finishLedIdx] = 1;
         }
+    }
+}
+
+static void LED_ObstacleEffectUpdate(uint32_t deltaMs)
+{
+    if (!s_obstacleEffectActive)
+    {
+        return;
+    }
+
+    s_obstacleTimerMs = (uint16_t)(s_obstacleTimerMs + deltaMs);
+    if (s_obstacleTimerMs < OBSTACLE_STEP_MS)
+    {
+        return;
+    }
+
+    s_obstacleTimerMs = 0;
+    s_obstacleStep++;
+    if (s_obstacleStep >= 3U)
+    {
+        s_obstacleStep = 0;
+        s_obstacleRound++;
+    }
+
+    s_ledBrightness[LED_GREEN] = s_savedBrightness;
+    s_ledBrightness[LED_RED] = s_savedBrightness;
+    s_ledBrightness[LED_INDICATOR] = s_savedBrightness;
+
+    if (s_obstacleRound >= OBSTACLE_ROUNDS)
+    {
+        s_obstacleEffectActive = 0;
+        if (s_uiRefreshHook)
+        {
+            s_uiRefreshHook();
+        }
+        return;
+    }
+
+    switch (s_obstacleStep)
+    {
+        case 0:
+            s_ledEnabled[LED_GREEN] = 1;
+            s_ledEnabled[LED_RED] = 1;
+            s_ledEnabled[LED_INDICATOR] = 0;
+            break;
+        case 1:
+            s_ledEnabled[LED_GREEN] = 1;
+            s_ledEnabled[LED_RED] = 0;
+            s_ledEnabled[LED_INDICATOR] = 1;
+            break;
+        default:
+            s_ledEnabled[LED_GREEN] = 0;
+            s_ledEnabled[LED_RED] = 1;
+            s_ledEnabled[LED_INDICATOR] = 1;
+            break;
     }
 }

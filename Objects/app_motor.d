@@ -39,10 +39,13 @@
 .\objects\app_motor.o: .\System\delay.h
 .\objects\app_motor.o: .\Hardware\bsp_usart.h
 .\objects\app_motor.o: .\Hardware\app_motor.h
-.\objects\app_motor.o: .\Hardware\bsp_motor_iic.h
-.\objects\app_motor.o: .\Hardware\IOI2C.h
+.\objects\app_motor.o: .\Hardware\bsp_motor.h
+.\objects\app_motor.o: .\Hardware\bsp_encoder.h
 .\objects\app_motor.o: .\Hardware\Tracking.h
 .\objects\app_motor.o: .\Hardware\bsp_timer.h
+.\objects\app_motor.o: .\Hardware\HCSR04.h
 .\objects\app_motor.o: .\Hardware\app_usart.h
 .\objects\app_motor.o: F:\keil5\keil\MDK\ARM\ARMCC\Bin\..\include\stdlib.h
 .\objects\app_motor.o: .\Hardware\app_irtracking.h
+.\objects\app_motor.o: .\Hardware\app_control.h
+.\objects\app_motor.o: Hardware\bsp_systick.h

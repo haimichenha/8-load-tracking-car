@@ -9,7 +9,7 @@
 
 /**
   * @brief  LED初始化
-  * @note   配置PB9和PE6为推挽输出，默认关闭LED
+  * @note   配置PB9和PE0为推挽输出，默认关闭LED
   */
 void LED_Init(void)
 {
@@ -73,4 +73,24 @@ void LED_SetAll(uint8_t state)
 {
     LED1_Set(state);
     LED2_Set(state);
+}
+
+/**
+  * @brief  获取LED1状态
+  * @retval 0-关闭, 1-点亮
+  * @note   低电平点亮，所以读取到0表示亮
+  */
+uint8_t LED1_GetState(void)
+{
+    return (GPIO_ReadOutputDataBit(LED1_GPIO_PORT, LED1_GPIO_PIN) == Bit_RESET) ? 1 : 0;
+}
+
+/**
+  * @brief  获取LED2状态
+  * @retval 0-关闭, 1-点亮
+  * @note   低电平点亮，所以读取到0表示亮
+  */
+uint8_t LED2_GetState(void)
+{
+    return (GPIO_ReadOutputDataBit(LED2_GPIO_PORT, LED2_GPIO_PIN) == Bit_RESET) ? 1 : 0;
 }

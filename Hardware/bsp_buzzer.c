@@ -87,6 +87,13 @@ static const BuzzerNote_t s_notesKeyLong[] = {
     {NOTE_H1, 80},      /* 高Do */
 };
 
+/* 避障提示 - 低频双响 */
+static const BuzzerNote_t s_notesObstacle[] = {
+    {NOTE_L2, 120},
+    {NOTE_REST, 80},
+    {NOTE_L2, 120},
+};
+
 /* 提示音序列表 */
 static const BeepSequence_t s_beepSequences[BEEP_MAX] = {
     /* BEEP_ACTIVATE */     {s_notesActivate,   sizeof(s_notesActivate)/sizeof(BuzzerNote_t),   20},
@@ -98,6 +105,7 @@ static const BeepSequence_t s_beepSequences[BEEP_MAX] = {
     /* BEEP_STARTUP */      {s_notesStartup,    sizeof(s_notesStartup)/sizeof(BuzzerNote_t),    20},
     /* BEEP_KEY_PRESS */    {s_notesKeyPress,   sizeof(s_notesKeyPress)/sizeof(BuzzerNote_t),   15},
     /* BEEP_KEY_LONG */     {s_notesKeyLong,    sizeof(s_notesKeyLong)/sizeof(BuzzerNote_t),    20},
+    /* BEEP_OBSTACLE */     {s_notesObstacle,   sizeof(s_notesObstacle)/sizeof(BuzzerNote_t),   18},
 };
 
 /*====================================================================================*/
@@ -241,6 +249,11 @@ void Buzzer_BeepTwice(void)
 void Buzzer_BeepTriple(void)
 {
     Buzzer_PlayBeep(BEEP_FINISH);
+}
+
+void Buzzer_BeepObstacle(void)
+{
+    Buzzer_PlayBeep(BEEP_OBSTACLE);
 }
 
 /**

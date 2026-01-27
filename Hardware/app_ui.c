@@ -25,6 +25,11 @@
 static UI_Page_t s_currentPage = UI_PAGE_OVERVIEW;
 static uint8_t s_showStats = 0;         // 是否显示统计页 (长按触发)
 static uint8_t s_pageChanged = 1;       // 页面切换标志，用于清屏
+static uint8_t s_finishMode = 0;        // 终点锁定显示
+static uint8_t s_obstacleMode = 0;      // 避障模式显示标志
+static uint8_t s_obstacleHint = 0;      // 避障提示覆盖层
+static uint16_t s_obstacleHintMs = 0;   // 避障提示计时
+static float s_ultrasonicCm = 0.0f;     // 超声波距离(cm)
 
 /*====================================================================================*/
 /*                                  全局变量                                           */
@@ -44,6 +49,11 @@ void UI_Init(void)
     s_currentPage = UI_PAGE_OVERVIEW;
     s_showStats = 0;
     s_pageChanged = 1;  // 初始化时需要清屏
+    s_finishMode = 0;
+    s_obstacleMode = 0;
+    s_obstacleHint = 0;
+    s_obstacleHintMs = 0;
+    s_ultrasonicCm = 0.0f;
     
     /* 清零循迹分析数据 */
     memset(&g_trackAnalysis, 0, sizeof(g_trackAnalysis));
@@ -58,6 +68,11 @@ void UI_Init(void)
   */
 void UI_NextPage(void)
 {
+    if (s_finishMode)
+    {
+        return;
+    }
+
     /* 如果在统计页，退出统计页 */
     if (s_showStats)
     {
@@ -67,7 +82,25 @@ void UI_NextPage(void)
     }
     
     /* 切换到下一页 */
-    s_currentPage = (UI_Page_t)((s_currentPage + 1) % UI_PAGE_COUNT);
+    if (s_obstacleMode)
+    {
+        if (s_currentPage == UI_PAGE_OVERVIEW)
+        {
+            s_currentPage = UI_PAGE_GYROSCOPE;
+        }
+        else if (s_currentPage == UI_PAGE_GYROSCOPE)
+        {
+            s_currentPage = UI_PAGE_TRACKING;
+        }
+        else
+        {
+            s_currentPage = UI_PAGE_OVERVIEW;
+        }
+    }
+    else
+    {
+        s_currentPage = (UI_Page_t)((s_currentPage + 1) % UI_PAGE_COUNT);
+    }
     s_pageChanged = 1;
 }
 
@@ -89,6 +122,44 @@ void UI_SetPage(UI_Page_t page)
         s_currentPage = page;
         s_pageChanged = 1;
     }
+}
+
+void UI_SetObstacleMode(uint8_t enable)
+{
+    s_obstacleMode = enable ? 1 : 0;
+}
+
+uint8_t UI_GetObstacleMode(void)
+{
+    return s_obstacleMode;
+}
+
+void UI_ShowObstacleHint(uint8_t enable)
+{
+    s_obstacleHint = enable ? 1 : 0;
+    s_obstacleHintMs = 0;
+    s_pageChanged = 1;
+}
+
+void UI_Tick(uint32_t deltaMs)
+{
+    if (s_obstacleHint)
+    {
+        if (s_obstacleHintMs < 5000U)
+        {
+            s_obstacleHintMs += (uint16_t)deltaMs;
+        }
+        if (s_obstacleHintMs >= 1500U)
+        {
+            s_obstacleHint = 0;
+            s_pageChanged = 1;
+        }
+    }
+}
+
+void UI_RequestRefresh(void)
+{
+    s_pageChanged = 1;
 }
 
 /*====================================================================================*/
@@ -191,10 +262,28 @@ void UI_Display(uint8_t trackData, uint8_t trackOK)
     /* 更新循迹分析 */
     UI_UpdateTrackingAnalysis(trackData);
     
+    if (s_finishMode)
+    {
+        OLED_ShowString(1, 1, "SUCCESS ENDLINE");
+        OLED_ShowString(2, 1, "STOPPED");
+        OLED_ShowString(3, 1, "PLEASE RESET");
+        OLED_ShowString(4, 1, " ");
+        return;
+    }
+
     /* 如果显示统计页 */
     if (s_showStats)
     {
         UI_DisplayStats();
+        return;
+    }
+
+    if (s_obstacleHint)
+    {
+        OLED_ShowString(1, 1, "OBSTACLE MODE");
+        OLED_ShowString(2, 1, s_obstacleMode ? "MODE: ON " : "MODE: OFF");
+        OLED_ShowString(3, 1, "LONG C5 TOGGLE");
+        OLED_ShowString(4, 1, "OBST + GYRO");
         return;
     }
     
@@ -417,10 +506,10 @@ void UI_DisplayGyroscope(void)
     OLED_ShowNum(2, 11, (uint32_t)(g_stats.currentSpeed * 100), 4);
     OLED_ShowString(2, 16, " ");
     
-    /* 第3行: 距离(预留编码器) */
-    OLED_ShowString(3, 1, "Dist:");
-    OLED_ShowNum(3, 6, (uint32_t)(g_stats.totalDistance * 100), 5);
-    OLED_ShowString(3, 11, "cm    ");
+    /* 第3行: 超声波距离 */
+    OLED_ShowString(3, 1, "US:");
+    OLED_ShowNum(3, 4, (uint32_t)(s_ultrasonicCm + 0.5f), 4);
+    OLED_ShowString(3, 8, "cm    ");
     
     /* 第4行: Spd + k: + l: (与其他页面一致) */
     pressTime = Key_GetPressTime();
@@ -521,4 +610,25 @@ void UI_HideStats(void)
 uint8_t UI_IsShowingStats(void)
 {
     return s_showStats;
+}
+
+void UI_SetUltrasonicDistance(float distanceCm)
+{
+    if (distanceCm < 0.0f) distanceCm = 0.0f;
+    s_ultrasonicCm = distanceCm;
+}
+
+void UI_SetFinishMode(uint8_t enable)
+{
+    s_finishMode = enable ? 1 : 0;
+    s_pageChanged = 1;
+    if (s_finishMode)
+    {
+        s_showStats = 0;
+    }
+}
+
+uint8_t UI_IsFinishMode(void)
+{
+    return s_finishMode;
 }

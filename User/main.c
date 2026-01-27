@@ -38,6 +38,27 @@
 
 /* 全局运行时间计数器 */
 static volatile uint32_t g_loopCount = 0;
+static uint32_t s_lastUltrasonicMs = 0;
+static float s_cachedUltrasonicCm = -1.0f;
+static uint8_t s_lastGyroReady = 0;
+
+static void Main_ToggleObstacleMode(uint8_t gyroReady)
+{
+    uint8_t obstacleMode = Control_GetObstacleMode();
+
+    if (!obstacleMode && !gyroReady)
+    {
+        UI_ShowObstacleHint(1);
+        return;
+    }
+
+    obstacleMode = obstacleMode ? 0 : 1;
+    Control_SetObstacleMode(obstacleMode);
+    UI_SetObstacleMode(obstacleMode);
+    UI_ShowObstacleHint(1);
+    LED_StartObstacleEffect();
+    Buzzer_BeepObstacle();
+}
 
 int main(void)
 {
@@ -56,6 +77,7 @@ int main(void)
     
     /* 初始化LED PWM模块 (PB9绿色, PE0红色, PE1指示灯) - 使用TIM3 */
     LED_PWM_Init();
+    LED_BindUIRefresh(UI_RequestRefresh);
     LED_Switch(LED_GREEN, 1);   /* 绿色LED开启 */
     LED_Switch(LED_RED, 1);     /* 红色LED开启 */
     
@@ -73,6 +95,9 @@ int main(void)
     
     /* 初始化UI模块 */
     UI_Init();
+    
+    /* 初始化超声波模块 */
+    HCSR04_Init();
     
     /* 初始化OLED (使用PB10/PB11软件I2C) */
     OLED_Init();
@@ -100,15 +125,19 @@ int main(void)
     HW_I2C_Init();
     Delay_ms(50);
 
-    /* 电机测试初始化 */
+    /* 电机与控制初始化 */
     Set_Motor(0);
+    Control_Init();
     motorTestStartMs = SysTick_GetMs();
     motorTestPhaseMs = motorTestStartMs;
+    s_lastUltrasonicMs = motorTestStartMs;
+    s_cachedUltrasonicCm = -1.0f;
     
     /*========== 第二阶段：主循环 ==========*/
     while (1)
     {
         uint32_t nowMs;
+        uint8_t gyroReady = s_lastGyroReady;
 
         g_loopCount++;
 
@@ -141,8 +170,7 @@ int main(void)
                 }
                 else if (keyEvent == KEY_EVENT_LONG)
                 {
-                    if (UI_IsShowingStats()) UI_HideStats();
-                    else UI_ShowStats();
+                    Main_ToggleObstacleMode(gyroReady);
                 }
             }
         }
@@ -163,22 +191,59 @@ int main(void)
             else if (keyEvent == KEY_EVENT_LONG)
             {
                 LED_IndicatorBlink2();  /* 指示灯闪烁两次 */
-                if (UI_IsShowingStats())
-                {
-                    UI_HideStats();
-                }
-                else
-                {
-                    UI_ShowStats();
-                }
+                Main_ToggleObstacleMode(gyroReady);
             }
         }
         
         /*=== 步骤1.5：LED亮度调节模式更新 ===*/
         LED_AdjustModeUpdate(LOOP_PERIOD_MS);
+        UI_Tick(LOOP_PERIOD_MS);
 
-        /* 电机控制：保持前进，速度 90% */
-        Motion_Car_Control(900, 0, 0); 
+        /* 超声波采样(低频) */
+        if ((nowMs - s_lastUltrasonicMs) >= 120U)
+        {
+            float distanceCm = HCSR04_GetValue();
+            s_cachedUltrasonicCm = distanceCm;
+            if (distanceCm >= 0.0f)
+            {
+                UI_SetUltrasonicDistance(distanceCm);
+            }
+            s_lastUltrasonicMs = nowMs;
+        }
+
+        /* 闭环控制输出 */
+        {
+            ControlOutput_t controlOut;
+            float speedLeft = Encoder_GetSpeedMMS(ENCODER_LEFT);
+            float speedRight = Encoder_GetSpeedMMS(ENCODER_RIGHT);
+            uint8_t raceStarted = Buzzer_IsTimingStarted();
+
+            uint8_t gyroValid = (JY301P_GetDataUpdateFlag() & (GYRO_UPDATE | ANGLE_UPDATE)) ? 1 : 0;
+            if (gyroValid)
+            {
+                JY301P_ClearDataUpdateFlag(GYRO_UPDATE | ANGLE_UPDATE);
+            }
+
+            if (!raceStarted)
+            {
+                gyroValid = 0;
+            }
+
+            gyroReady = gyroValid ? 1 : 0;
+            s_lastGyroReady = gyroReady;
+
+            controlOut = Control_Update(track_hw, g_jy301p_data.gyro[2], g_jy301p_data.angle[1], s_cachedUltrasonicCm, speedLeft, speedRight, gyroValid, nowMs);
+
+            /* 探线前安全限速：约15%（避免手持/离地时误动作过猛） */
+            if (!raceStarted)
+            {
+                if (controlOut.vx > 150) controlOut.vx = 150;
+                if (controlOut.vz > 150) controlOut.vz = 150;
+                if (controlOut.vz < -150) controlOut.vz = -150;
+            }
+
+            Motion_Car_Control(controlOut.vx, 0, controlOut.vz);
+        }
         
         /*=== 步骤2：更新统计数据（不依赖I2C）===*/
         Stats_Update(LOOP_PERIOD_MS);
@@ -193,22 +258,12 @@ int main(void)
             Buzzer_StartTiming();
         }
         
-        /* 检测1分钟提醒和终点条件 */
+        /* 检测1分钟提醒 */
         if (Buzzer_IsTimingStarted())
         {
             if (Buzzer_CheckOneMinute(SysTick_GetMs()))
             {
                 Buzzer_BeepTwice();
-            }
-            
-            if (Buzzer_CheckFinish(track_hw, 
-                                   g_jy301p_data.angle[0],
-                                   g_jy301p_data.angle[1],
-                                   g_jy301p_data.angle[2],
-                                   SysTick_GetMs()))
-            {
-                Buzzer_BeepTriple();
-                LED_StartFinishEffect();  /* 终点流水灯效果 */
             }
         }
         

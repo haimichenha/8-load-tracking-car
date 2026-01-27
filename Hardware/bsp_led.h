@@ -1,7 +1,7 @@
 /**
   * @file    bsp_led.h
   * @brief   LED驱动模块
-  * @note    LED1G (绿色) - PB9, LED2R (红色) - PE6
+  * @note    LED1G (绿色) - PB9, LED2R (红色) - PE0
   *          低电平点亮 (LED连接到VCC)
   */
 
@@ -43,7 +43,7 @@
 
 /**
   * @brief  LED初始化
-  * @note   配置PB9和PE6为推挽输出，默认关闭LED
+  * @note   配置PB9和PE0为推挽输出，默认关闭LED
   */
 void LED_Init(void);
 
@@ -64,5 +64,17 @@ void LED2_Set(uint8_t state);
   * @param  state: 0-全部关闭, 1-全部点亮
   */
 void LED_SetAll(uint8_t state);
+
+/**
+  * @brief  获取LED1状态
+  * @retval 0-关闭, 1-点亮
+  */
+uint8_t LED1_GetState(void);
+
+/**
+  * @brief  获取LED2状态
+  * @retval 0-关闭, 1-点亮
+  */
+uint8_t LED2_GetState(void);
 
 #endif /* __BSP_LED_H */

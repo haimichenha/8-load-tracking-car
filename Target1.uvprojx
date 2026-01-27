@@ -717,6 +717,36 @@
               <FileType>5</FileType>
               <FilePath>.\Hardware\wit_c_sdk.h</FilePath>
             </File>
+            <File>
+              <FileName>app_control.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>.\Hardware\app_control.c</FilePath>
+            </File>
+            <File>
+              <FileName>app_control.h</FileName>
+              <FileType>5</FileType>
+              <FilePath>.\Hardware\app_control.h</FilePath>
+            </File>
+            <File>
+              <FileName>bsp_motor_iic.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>.\Hardware\bsp_motor_iic.c</FilePath>
+            </File>
+            <File>
+              <FileName>bsp_motor_iic.h</FileName>
+              <FileType>5</FileType>
+              <FilePath>.\Hardware\bsp_motor_iic.h</FilePath>
+            </File>
+            <File>
+              <FileName>bsp_timer.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>.\Hardware\bsp_timer.c</FilePath>
+            </File>
+            <File>
+              <FileName>bsp_timer.h</FileName>
+              <FileType>5</FileType>
+              <FilePath>.\Hardware\bsp_timer.h</FilePath>
+            </File>
           </Files>
         </Group>
         <Group>

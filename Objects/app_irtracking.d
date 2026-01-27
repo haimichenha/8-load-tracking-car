@@ -39,10 +39,12 @@
 .\objects\app_irtracking.o: .\System\delay.h
 .\objects\app_irtracking.o: .\Hardware\bsp_usart.h
 .\objects\app_irtracking.o: .\Hardware\app_motor.h
-.\objects\app_irtracking.o: .\Hardware\bsp_motor_iic.h
-.\objects\app_irtracking.o: .\Hardware\IOI2C.h
+.\objects\app_irtracking.o: .\Hardware\bsp_motor.h
+.\objects\app_irtracking.o: .\Hardware\bsp_encoder.h
 .\objects\app_irtracking.o: .\Hardware\Tracking.h
 .\objects\app_irtracking.o: .\Hardware\bsp_timer.h
+.\objects\app_irtracking.o: .\Hardware\HCSR04.h
 .\objects\app_irtracking.o: .\Hardware\app_usart.h
 .\objects\app_irtracking.o: F:\keil5\keil\MDK\ARM\ARMCC\Bin\..\include\stdlib.h
 .\objects\app_irtracking.o: .\Hardware\app_irtracking.h
+.\objects\app_irtracking.o: .\Hardware\app_control.h

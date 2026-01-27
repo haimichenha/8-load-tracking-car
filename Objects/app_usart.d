@@ -40,9 +40,11 @@
 .\objects\app_usart.o: .\System\delay.h
 .\objects\app_usart.o: .\Hardware\bsp_usart.h
 .\objects\app_usart.o: .\Hardware\app_motor.h
-.\objects\app_usart.o: .\Hardware\bsp_motor_iic.h
-.\objects\app_usart.o: .\Hardware\IOI2C.h
+.\objects\app_usart.o: .\Hardware\bsp_motor.h
+.\objects\app_usart.o: .\Hardware\bsp_encoder.h
 .\objects\app_usart.o: .\Hardware\Tracking.h
 .\objects\app_usart.o: .\Hardware\bsp_timer.h
+.\objects\app_usart.o: .\Hardware\HCSR04.h
 .\objects\app_usart.o: .\Hardware\app_usart.h
 .\objects\app_usart.o: .\Hardware\app_irtracking.h
+.\objects\app_usart.o: .\Hardware\app_control.h

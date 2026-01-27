@@ -42,11 +42,13 @@
 .\objects\jy301p.o: .\System\delay.h
 .\objects\jy301p.o: .\Hardware\bsp_usart.h
 .\objects\jy301p.o: .\Hardware\app_motor.h
-.\objects\jy301p.o: .\Hardware\bsp_motor_iic.h
-.\objects\jy301p.o: .\Hardware\IOI2C.h
+.\objects\jy301p.o: .\Hardware\bsp_motor.h
+.\objects\jy301p.o: .\Hardware\bsp_encoder.h
 .\objects\jy301p.o: .\Hardware\Tracking.h
 .\objects\jy301p.o: .\Hardware\bsp_timer.h
+.\objects\jy301p.o: .\Hardware\HCSR04.h
 .\objects\jy301p.o: .\Hardware\app_usart.h
 .\objects\jy301p.o: F:\keil5\keil\MDK\ARM\ARMCC\Bin\..\include\stdlib.h
 .\objects\jy301p.o: .\Hardware\app_irtracking.h
+.\objects\jy301p.o: .\Hardware\app_control.h
 .\objects\jy301p.o: Hardware\OLED.h

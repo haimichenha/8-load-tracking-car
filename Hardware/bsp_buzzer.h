@@ -69,6 +69,7 @@ typedef enum {
     BEEP_STARTUP,           /* 开机提示 - 欢迎音 */
     BEEP_KEY_PRESS,         /* 按键音 - 极短响 */
     BEEP_KEY_LONG,          /* 长按确认 - 两声确认 */
+    BEEP_OBSTACLE,          /* 避障提示 - 低频双响 */
     BEEP_MAX
 } BeepType_t;
 
@@ -140,6 +141,11 @@ void Buzzer_BeepTwice(void);
   * @brief  触发蜂鸣器响三声升调 (终点)
   */
 void Buzzer_BeepTriple(void);
+
+/**
+  * @brief  触发避障低频双响
+  */
+void Buzzer_BeepObstacle(void);
 
 /**
   * @brief  停止当前播放
