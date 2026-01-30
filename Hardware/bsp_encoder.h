@@ -15,7 +15,7 @@
 /*                                  引脚定义                                           */
 /*====================================================================================*/
 
-/* 左电机编码器 - TIM2 */
+/* 左电机编码器 - TIM2 (PA0/PA1) */
 #define ENCODER_L_TIM           TIM2
 #define ENCODER_L_TIM_CLK       RCC_APB1Periph_TIM2
 #define ENCODER_L_GPIO_PORT     GPIOA
@@ -23,7 +23,7 @@
 #define ENCODER_L_ENCA_PIN      GPIO_Pin_0      /* PA0 - TIM2_CH1 */
 #define ENCODER_L_ENCB_PIN      GPIO_Pin_1      /* PA1 - TIM2_CH2 */
 
-/* 右电机编码器 - TIM3 */
+/* 右电机编码器 - TIM3 (PA6/PA7) */
 #define ENCODER_R_TIM           TIM3
 #define ENCODER_R_TIM_CLK       RCC_APB1Periph_TIM3
 #define ENCODER_R_GPIO_PORT     GPIOA
@@ -35,13 +35,18 @@
 /*                                  编码器参数                                         */
 /*====================================================================================*/
 
-/* MG310电机编码器参数 (需要根据实际电机调整) */
+/* MG310电机编码器参数 (霍尔编码器版) */
 #define ENCODER_PPR             11      /* 编码器每转脉冲数 (Pulses Per Revolution) */
-#define ENCODER_GEAR_RATIO      30      /* 减速比 */
-#define ENCODER_4X_PPR          (ENCODER_PPR * 4 * ENCODER_GEAR_RATIO)  /* 4倍频后每转脉冲 */
+#define ENCODER_GEAR_RATIO      20      /* 减速比 1:20 (根据规格书) */
+#define ENCODER_4X_PPR          (ENCODER_PPR * 4 * ENCODER_GEAR_RATIO)  /* 4倍频后每转脉冲 = 11*4*20 = 880 */
+
+/* 编码器方向反转配置 (1=反转, 0=不反转) */
+/* 测试结果：左轮向前是负值(需反转)，右轮向前是正值(不反转) */
+#define ENCODER_L_INVERT        1       /* 左编码器：向前是负值，需要反转 */
+#define ENCODER_R_INVERT        0       /* 右编码器：向前是正值，不需要反转 */
 
 /* 轮子参数 */
-#define WHEEL_DIAMETER_MM       65      /* 轮子直径 (mm) */
+#define WHEEL_DIAMETER_MM       48      /* 轮子直径 48mm */
 #define WHEEL_CIRCUMFERENCE_MM  (WHEEL_DIAMETER_MM * 314 / 100)  /* 轮子周长 (mm) */
 
 /*====================================================================================*/

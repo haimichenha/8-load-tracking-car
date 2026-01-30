@@ -1,5 +1,5 @@
 Dependencies for Project 'Target1', Target 'Target 1': (DO NOT MODIFY !)
-F (.\User\main.c)(0x6976F35E)(--c99 --gnu -c --cpu Cortex-M3 -g -O0 --apcs=interwork --split_sections -I "..\JKXie\程序源码\STM32Project-无注释版\2-1 STM32工程模板\Start" -I .\User -I .\Library -I .\System -I .\Hardware -I .\softwork\EightWayTrack\BSP -I .\softwork\EightWayTrack\CMSIS -I .\softwork\EightWayTrack\FWLib -I .\softwork\EightWayTrack\OBJ -I .\softwork\EightWayTrack\BSP\Motor -I .\softwork\EightWayTrack\BSP\TIMER -I .\softwork\EightWayTrack\BSP\UART -I .\softwork\STM32Core_SDK_IICXJ\Source\Drive -I .\softwork\STM32Core_SDK_IICXJ\Source\wit_c_sdk-I.\RTE\_Target_1-IF:\keil5\keil\MDK\ARM\PACK\Keil\STM32F1xx_DFP\2.3.0\Device\Include-IF:\keil5\keil\MDK\ARM\CMSIS\Include-D__UVISION_VERSION="527" -DSTM32F10X_HD -DSTM32F10X_HD -DUSE_STDPERIPH_DRIVER-o .\objects\main.o --omf_browse .\objects\main.crf --depend .\objects\main.d)
+F (.\User\main.c)(0x697C7802)(--c99 --gnu -c --cpu Cortex-M3 -g -O0 --apcs=interwork --split_sections -I "..\JKXie\程序源码\STM32Project-无注释版\2-1 STM32工程模板\Start" -I .\User -I .\Library -I .\System -I .\Hardware -I .\softwork\EightWayTrack\BSP -I .\softwork\EightWayTrack\CMSIS -I .\softwork\EightWayTrack\FWLib -I .\softwork\EightWayTrack\OBJ -I .\softwork\EightWayTrack\BSP\Motor -I .\softwork\EightWayTrack\BSP\TIMER -I .\softwork\EightWayTrack\BSP\UART -I .\softwork\STM32Core_SDK_IICXJ\Source\Drive -I .\softwork\STM32Core_SDK_IICXJ\Source\wit_c_sdk-I.\RTE\_Target_1-IF:\keil5\keil\MDK\ARM\PACK\Keil\STM32F1xx_DFP\2.3.0\Device\Include-IF:\keil5\keil\MDK\ARM\CMSIS\Include-D__UVISION_VERSION="527" -DSTM32F10X_HD -DSTM32F10X_HD -DUSE_STDPERIPH_DRIVER-o .\objects\main.o --omf_browse .\objects\main.crf --depend .\objects\main.d)
 I (..\JKXie\绋嬪簭婧愮爜\STM32Project-鏃犳敞閲婄増\2-1 STM32宸ョ▼妯℃澘\Start\stm32f10x.h)(0x00000000)
 I (..\JKXie\绋嬪簭婧愮爜\STM32Project-鏃犳敞閲婄増\2-1 STM32宸ョ▼妯℃澘\Start\core_cm3.h)(0x00000000)
 I (F:\keil5\keil\MDK\ARM\ARMCC\include\stdint.h)(0x599ECD2E)
@@ -31,34 +31,34 @@ I (.\Library\misc.h)(0x4D783BB4)
 I (.\System\Delay.h)(0x694A95CD)
 I (.\Hardware\OLED.h)(0x6969D00A)
 I (.\Hardware\bsp_usart.h)(0x6949F3CB)
-I (.\User\AllHeader.h)(0x697183F1)
+I (.\User\AllHeader.h)(0x697AE65F)
 I (F:\keil5\keil\MDK\ARM\ARMCC\include\stdio.h)(0x599ECD2C)
 I (F:\keil5\keil\MDK\ARM\ARMCC\include\stdbool.h)(0x599ECD2E)
 I (F:\keil5\keil\MDK\ARM\ARMCC\include\string.h)(0x599ECD2C)
 I (.\Hardware\bsp.h)(0x6949F3AE)
-I (.\Hardware\bsp_common.h)(0x6970C237)
+I (.\Hardware\bsp_common.h)(0x697AE65F)
 I (.\Hardware\app_motor.h)(0x69709CC0)
-I (.\Hardware\bsp_motor.h)(0x69709CC0)
-I (.\Hardware\bsp_encoder.h)(0x69709CC0)
+I (.\Hardware\bsp_motor.h)(0x697B2C76)
+I (.\Hardware\bsp_encoder.h)(0x697C1D90)
 I (.\Hardware\Tracking.h)(0x69662B49)
 I (.\Hardware\bsp_timer.h)(0x6969D00A)
 I (.\Hardware\HCSR04.h)(0x6949FAB3)
 I (.\Hardware\app_usart.h)(0x6949F3AC)
 I (F:\keil5\keil\MDK\ARM\ARMCC\include\stdlib.h)(0x599ECD2C)
 I (.\Hardware\app_irtracking.h)(0x6949F3AC)
-I (.\Hardware\app_control.h)(0x6976DB55)
+I (.\Hardware\app_control.h)(0x697C7802)
 I (.\Hardware\HW_I2C.h)(0x69662A2A)
 I (.\Hardware\JY301P.h)(0x69662A09)
 I (.\Hardware\wit_c_sdk.h)(0x649BE0EA)
-I (.\Hardware\REG.h)(0x6974C356)
-I (.\Hardware\IOI2C.h)(0x69662B49)
+I (.\Hardware\REG.h)(0x697AE65F)
+I (.\Hardware\IOI2C.h)(0x697B2C76)
 I (.\Hardware\bsp_key.h)(0x69709CC0)
 I (.\Hardware\bsp_key2.h)(0x69709CC0)
 I (.\Hardware\bsp_systick.h)(0x69704333)
-I (.\Hardware\bsp_led.h)(0x6976D7B8)
-I (.\Hardware\bsp_led_pwm.h)(0x6976F35E)
-I (.\Hardware\bsp_buzzer.h)(0x6976DB55)
-I (.\Hardware\app_ui.h)(0x6976F35E)
+I (.\Hardware\bsp_led.h)(0x697AE65F)
+I (.\Hardware\bsp_led_pwm.h)(0x697AE65F)
+I (.\Hardware\bsp_buzzer.h)(0x697AE65F)
+I (.\Hardware\app_ui.h)(0x697C7802)
 I (.\Hardware\app_stats.h)(0x6969D00A)
 F (.\User\stm32f10x_conf.h)(0x4D99A59E)()
 F (.\User\stm32f10x_it.c)(0x69709CC0)(--c99 --gnu -c --cpu Cortex-M3 -g -O0 --apcs=interwork --split_sections -I "..\JKXie\程序源码\STM32Project-无注释版\2-1 STM32工程模板\Start" -I .\User -I .\Library -I .\System -I .\Hardware -I .\softwork\EightWayTrack\BSP -I .\softwork\EightWayTrack\CMSIS -I .\softwork\EightWayTrack\FWLib -I .\softwork\EightWayTrack\OBJ -I .\softwork\EightWayTrack\BSP\Motor -I .\softwork\EightWayTrack\BSP\TIMER -I .\softwork\EightWayTrack\BSP\UART -I .\softwork\STM32Core_SDK_IICXJ\Source\Drive -I .\softwork\STM32Core_SDK_IICXJ\Source\wit_c_sdk-I.\RTE\_Target_1-IF:\keil5\keil\MDK\ARM\PACK\Keil\STM32F1xx_DFP\2.3.0\Device\Include-IF:\keil5\keil\MDK\ARM\CMSIS\Include-D__UVISION_VERSION="527" -DSTM32F10X_HD -DSTM32F10X_HD -DUSE_STDPERIPH_DRIVER-o .\objects\stm32f10x_it.o --omf_browse .\objects\stm32f10x_it.crf --depend .\objects\stm32f10x_it.d)
@@ -123,7 +123,7 @@ I (.\Library\stm32f10x_usart.h)(0x4D783BB4)
 I (.\Library\stm32f10x_wwdg.h)(0x4D783BB4)
 I (.\Library\misc.h)(0x4D783BB4)
 F (.\System\Delay.h)(0x694A95CD)()
-F (.\Hardware\OLED.c)(0x695E0962)(--c99 --gnu -c --cpu Cortex-M3 -g -O0 --apcs=interwork --split_sections -I "..\JKXie\程序源码\STM32Project-无注释版\2-1 STM32工程模板\Start" -I .\User -I .\Library -I .\System -I .\Hardware -I .\softwork\EightWayTrack\BSP -I .\softwork\EightWayTrack\CMSIS -I .\softwork\EightWayTrack\FWLib -I .\softwork\EightWayTrack\OBJ -I .\softwork\EightWayTrack\BSP\Motor -I .\softwork\EightWayTrack\BSP\TIMER -I .\softwork\EightWayTrack\BSP\UART -I .\softwork\STM32Core_SDK_IICXJ\Source\Drive -I .\softwork\STM32Core_SDK_IICXJ\Source\wit_c_sdk-I.\RTE\_Target_1-IF:\keil5\keil\MDK\ARM\PACK\Keil\STM32F1xx_DFP\2.3.0\Device\Include-IF:\keil5\keil\MDK\ARM\CMSIS\Include-D__UVISION_VERSION="527" -DSTM32F10X_HD -DSTM32F10X_HD -DUSE_STDPERIPH_DRIVER-o .\objects\oled.o --omf_browse .\objects\oled.crf --depend .\objects\oled.d)
+F (.\Hardware\OLED.c)(0x697B2C76)(--c99 --gnu -c --cpu Cortex-M3 -g -O0 --apcs=interwork --split_sections -I "..\JKXie\程序源码\STM32Project-无注释版\2-1 STM32工程模板\Start" -I .\User -I .\Library -I .\System -I .\Hardware -I .\softwork\EightWayTrack\BSP -I .\softwork\EightWayTrack\CMSIS -I .\softwork\EightWayTrack\FWLib -I .\softwork\EightWayTrack\OBJ -I .\softwork\EightWayTrack\BSP\Motor -I .\softwork\EightWayTrack\BSP\TIMER -I .\softwork\EightWayTrack\BSP\UART -I .\softwork\STM32Core_SDK_IICXJ\Source\Drive -I .\softwork\STM32Core_SDK_IICXJ\Source\wit_c_sdk-I.\RTE\_Target_1-IF:\keil5\keil\MDK\ARM\PACK\Keil\STM32F1xx_DFP\2.3.0\Device\Include-IF:\keil5\keil\MDK\ARM\CMSIS\Include-D__UVISION_VERSION="527" -DSTM32F10X_HD -DSTM32F10X_HD -DUSE_STDPERIPH_DRIVER-o .\objects\oled.o --omf_browse .\objects\oled.crf --depend .\objects\oled.d)
 I (..\JKXie\绋嬪簭婧愮爜\STM32Project-鏃犳敞閲婄増\2-1 STM32宸ョ▼妯℃澘\Start\stm32f10x.h)(0x00000000)
 I (..\JKXie\绋嬪簭婧愮爜\STM32Project-鏃犳敞閲婄増\2-1 STM32宸ョ▼妯℃澘\Start\core_cm3.h)(0x00000000)
 I (F:\keil5\keil\MDK\ARM\ARMCC\include\stdint.h)(0x599ECD2E)
@@ -249,40 +249,40 @@ I (.\Library\stm32f10x_wwdg.h)(0x4D783BB4)
 I (.\Library\misc.h)(0x4D783BB4)
 I (Hardware\Tracking.h)(0x69662B49)
 I (.\System\Delay.h)(0x694A95CD)
-I (Hardware\IOI2C.h)(0x69662B49)
-I (.\User\AllHeader.h)(0x697183F1)
+I (Hardware\IOI2C.h)(0x697B2C76)
+I (.\User\AllHeader.h)(0x697AE65F)
 I (F:\keil5\keil\MDK\ARM\ARMCC\include\stdio.h)(0x599ECD2C)
 I (F:\keil5\keil\MDK\ARM\ARMCC\include\stdbool.h)(0x599ECD2E)
 I (F:\keil5\keil\MDK\ARM\ARMCC\include\string.h)(0x599ECD2C)
 I (.\Hardware\bsp.h)(0x6949F3AE)
-I (.\Hardware\bsp_common.h)(0x6970C237)
+I (.\Hardware\bsp_common.h)(0x697AE65F)
 I (.\Hardware\bsp_usart.h)(0x6949F3CB)
 I (.\Hardware\app_motor.h)(0x69709CC0)
-I (.\Hardware\bsp_motor.h)(0x69709CC0)
-I (.\Hardware\bsp_encoder.h)(0x69709CC0)
+I (.\Hardware\bsp_motor.h)(0x697B2C76)
+I (.\Hardware\bsp_encoder.h)(0x697C1D90)
 I (.\Hardware\bsp_timer.h)(0x6969D00A)
 I (.\Hardware\HCSR04.h)(0x6949FAB3)
 I (.\Hardware\app_usart.h)(0x6949F3AC)
 I (F:\keil5\keil\MDK\ARM\ARMCC\include\stdlib.h)(0x599ECD2C)
 I (.\Hardware\app_irtracking.h)(0x6949F3AC)
-I (.\Hardware\app_control.h)(0x6976DB55)
+I (.\Hardware\app_control.h)(0x697C7802)
 I (Hardware\HW_I2C.h)(0x69662A2A)
 F (.\Hardware\Tracking.h)(0x69662B49)()
 F (.\Hardware\app_irtracking.h)(0x6949F3AC)()
 F (.\Hardware\app_motor.h)(0x69709CC0)()
-F (.\Hardware\bsp_motor.h)(0x69709CC0)()
+F (.\Hardware\bsp_motor.h)(0x697B2C76)()
 F (.\Hardware\bsp.h)(0x6949F3AE)()
-F (.\Hardware\bsp_common.h)(0x6970C237)()
+F (.\Hardware\bsp_common.h)(0x697AE65F)()
 F (.\Hardware\bsp_usart.h)(0x6949F3CB)()
 F (.\Hardware\DHT11.h)(0x694A5307)()
 F (.\Hardware\HCSR04.h)(0x6949FAB3)()
-F (.\Hardware\IOI2C.h)(0x69662B49)()
+F (.\Hardware\IOI2C.h)(0x697B2C76)()
 F (.\Hardware\JY301P.h)(0x69662A09)()
 F (.\Hardware\mpu6050.h)(0x6933B7AB)()
 F (.\Hardware\MPU6050_I2C.h)(0x6933B7AB)()
 F (.\Hardware\app_irtracking.c)(0x694AAA96)(--c99 --gnu -c --cpu Cortex-M3 -g -O0 --apcs=interwork --split_sections -I "..\JKXie\程序源码\STM32Project-无注释版\2-1 STM32工程模板\Start" -I .\User -I .\Library -I .\System -I .\Hardware -I .\softwork\EightWayTrack\BSP -I .\softwork\EightWayTrack\CMSIS -I .\softwork\EightWayTrack\FWLib -I .\softwork\EightWayTrack\OBJ -I .\softwork\EightWayTrack\BSP\Motor -I .\softwork\EightWayTrack\BSP\TIMER -I .\softwork\EightWayTrack\BSP\UART -I .\softwork\STM32Core_SDK_IICXJ\Source\Drive -I .\softwork\STM32Core_SDK_IICXJ\Source\wit_c_sdk-I.\RTE\_Target_1-IF:\keil5\keil\MDK\ARM\PACK\Keil\STM32F1xx_DFP\2.3.0\Device\Include-IF:\keil5\keil\MDK\ARM\CMSIS\Include-D__UVISION_VERSION="527" -DSTM32F10X_HD -DSTM32F10X_HD -DUSE_STDPERIPH_DRIVER-o .\objects\app_irtracking.o --omf_browse .\objects\app_irtracking.crf --depend .\objects\app_irtracking.d)
 I (Hardware\app_irtracking.h)(0x6949F3AC)
-I (.\User\AllHeader.h)(0x697183F1)
+I (.\User\AllHeader.h)(0x697AE65F)
 I (F:\keil5\keil\MDK\ARM\ARMCC\include\stdio.h)(0x599ECD2C)
 I (F:\keil5\keil\MDK\ARM\ARMCC\include\stdbool.h)(0x599ECD2E)
 I (F:\keil5\keil\MDK\ARM\ARMCC\include\string.h)(0x599ECD2C)
@@ -315,22 +315,22 @@ I (.\Library\stm32f10x_usart.h)(0x4D783BB4)
 I (.\Library\stm32f10x_wwdg.h)(0x4D783BB4)
 I (.\Library\misc.h)(0x4D783BB4)
 I (.\Hardware\bsp.h)(0x6949F3AE)
-I (.\Hardware\bsp_common.h)(0x6970C237)
+I (.\Hardware\bsp_common.h)(0x697AE65F)
 I (.\System\delay.h)(0x694A95CD)
 I (.\Hardware\bsp_usart.h)(0x6949F3CB)
 I (.\Hardware\app_motor.h)(0x69709CC0)
-I (.\Hardware\bsp_motor.h)(0x69709CC0)
-I (.\Hardware\bsp_encoder.h)(0x69709CC0)
+I (.\Hardware\bsp_motor.h)(0x697B2C76)
+I (.\Hardware\bsp_encoder.h)(0x697C1D90)
 I (.\Hardware\Tracking.h)(0x69662B49)
 I (.\Hardware\bsp_timer.h)(0x6969D00A)
 I (.\Hardware\HCSR04.h)(0x6949FAB3)
 I (.\Hardware\app_usart.h)(0x6949F3AC)
 I (F:\keil5\keil\MDK\ARM\ARMCC\include\stdlib.h)(0x599ECD2C)
 I (.\Hardware\app_irtracking.h)(0x6949F3AC)
-I (.\Hardware\app_control.h)(0x6976DB55)
-F (.\Hardware\app_motor.c)(0x69778A67)(--c99 --gnu -c --cpu Cortex-M3 -g -O0 --apcs=interwork --split_sections -I "..\JKXie\程序源码\STM32Project-无注释版\2-1 STM32工程模板\Start" -I .\User -I .\Library -I .\System -I .\Hardware -I .\softwork\EightWayTrack\BSP -I .\softwork\EightWayTrack\CMSIS -I .\softwork\EightWayTrack\FWLib -I .\softwork\EightWayTrack\OBJ -I .\softwork\EightWayTrack\BSP\Motor -I .\softwork\EightWayTrack\BSP\TIMER -I .\softwork\EightWayTrack\BSP\UART -I .\softwork\STM32Core_SDK_IICXJ\Source\Drive -I .\softwork\STM32Core_SDK_IICXJ\Source\wit_c_sdk-I.\RTE\_Target_1-IF:\keil5\keil\MDK\ARM\PACK\Keil\STM32F1xx_DFP\2.3.0\Device\Include-IF:\keil5\keil\MDK\ARM\CMSIS\Include-D__UVISION_VERSION="527" -DSTM32F10X_HD -DSTM32F10X_HD -DUSE_STDPERIPH_DRIVER-o .\objects\app_motor.o --omf_browse .\objects\app_motor.crf --depend .\objects\app_motor.d)
+I (.\Hardware\app_control.h)(0x697C7802)
+F (.\Hardware\app_motor.c)(0x697C77FF)(--c99 --gnu -c --cpu Cortex-M3 -g -O0 --apcs=interwork --split_sections -I "..\JKXie\程序源码\STM32Project-无注释版\2-1 STM32工程模板\Start" -I .\User -I .\Library -I .\System -I .\Hardware -I .\softwork\EightWayTrack\BSP -I .\softwork\EightWayTrack\CMSIS -I .\softwork\EightWayTrack\FWLib -I .\softwork\EightWayTrack\OBJ -I .\softwork\EightWayTrack\BSP\Motor -I .\softwork\EightWayTrack\BSP\TIMER -I .\softwork\EightWayTrack\BSP\UART -I .\softwork\STM32Core_SDK_IICXJ\Source\Drive -I .\softwork\STM32Core_SDK_IICXJ\Source\wit_c_sdk-I.\RTE\_Target_1-IF:\keil5\keil\MDK\ARM\PACK\Keil\STM32F1xx_DFP\2.3.0\Device\Include-IF:\keil5\keil\MDK\ARM\CMSIS\Include-D__UVISION_VERSION="527" -DSTM32F10X_HD -DSTM32F10X_HD -DUSE_STDPERIPH_DRIVER-o .\objects\app_motor.o --omf_browse .\objects\app_motor.crf --depend .\objects\app_motor.d)
 I (Hardware\app_motor.h)(0x69709CC0)
-I (.\User\AllHeader.h)(0x697183F1)
+I (.\User\AllHeader.h)(0x697AE65F)
 I (F:\keil5\keil\MDK\ARM\ARMCC\include\stdio.h)(0x599ECD2C)
 I (F:\keil5\keil\MDK\ARM\ARMCC\include\stdbool.h)(0x599ECD2E)
 I (F:\keil5\keil\MDK\ARM\ARMCC\include\string.h)(0x599ECD2C)
@@ -363,22 +363,22 @@ I (.\Library\stm32f10x_usart.h)(0x4D783BB4)
 I (.\Library\stm32f10x_wwdg.h)(0x4D783BB4)
 I (.\Library\misc.h)(0x4D783BB4)
 I (.\Hardware\bsp.h)(0x6949F3AE)
-I (.\Hardware\bsp_common.h)(0x6970C237)
+I (.\Hardware\bsp_common.h)(0x697AE65F)
 I (.\System\delay.h)(0x694A95CD)
 I (.\Hardware\bsp_usart.h)(0x6949F3CB)
 I (.\Hardware\app_motor.h)(0x69709CC0)
-I (.\Hardware\bsp_motor.h)(0x69709CC0)
-I (.\Hardware\bsp_encoder.h)(0x69709CC0)
+I (.\Hardware\bsp_motor.h)(0x697B2C76)
+I (.\Hardware\bsp_encoder.h)(0x697C1D90)
 I (.\Hardware\Tracking.h)(0x69662B49)
 I (.\Hardware\bsp_timer.h)(0x6969D00A)
 I (.\Hardware\HCSR04.h)(0x6949FAB3)
 I (.\Hardware\app_usart.h)(0x6949F3AC)
 I (F:\keil5\keil\MDK\ARM\ARMCC\include\stdlib.h)(0x599ECD2C)
 I (.\Hardware\app_irtracking.h)(0x6949F3AC)
-I (.\Hardware\app_control.h)(0x6976DB55)
+I (.\Hardware\app_control.h)(0x697C7802)
 I (Hardware\bsp_systick.h)(0x69704333)
-F (.\Hardware\bsp_motor.c)(0x69709CC0)(--c99 --gnu -c --cpu Cortex-M3 -g -O0 --apcs=interwork --split_sections -I "..\JKXie\程序源码\STM32Project-无注释版\2-1 STM32工程模板\Start" -I .\User -I .\Library -I .\System -I .\Hardware -I .\softwork\EightWayTrack\BSP -I .\softwork\EightWayTrack\CMSIS -I .\softwork\EightWayTrack\FWLib -I .\softwork\EightWayTrack\OBJ -I .\softwork\EightWayTrack\BSP\Motor -I .\softwork\EightWayTrack\BSP\TIMER -I .\softwork\EightWayTrack\BSP\UART -I .\softwork\STM32Core_SDK_IICXJ\Source\Drive -I .\softwork\STM32Core_SDK_IICXJ\Source\wit_c_sdk-I.\RTE\_Target_1-IF:\keil5\keil\MDK\ARM\PACK\Keil\STM32F1xx_DFP\2.3.0\Device\Include-IF:\keil5\keil\MDK\ARM\CMSIS\Include-D__UVISION_VERSION="527" -DSTM32F10X_HD -DSTM32F10X_HD -DUSE_STDPERIPH_DRIVER-o .\objects\bsp_motor.o --omf_browse .\objects\bsp_motor.crf --depend .\objects\bsp_motor.d)
-I (Hardware\bsp_motor.h)(0x69709CC0)
+F (.\Hardware\bsp_motor.c)(0x697C174A)(--c99 --gnu -c --cpu Cortex-M3 -g -O0 --apcs=interwork --split_sections -I "..\JKXie\程序源码\STM32Project-无注释版\2-1 STM32工程模板\Start" -I .\User -I .\Library -I .\System -I .\Hardware -I .\softwork\EightWayTrack\BSP -I .\softwork\EightWayTrack\CMSIS -I .\softwork\EightWayTrack\FWLib -I .\softwork\EightWayTrack\OBJ -I .\softwork\EightWayTrack\BSP\Motor -I .\softwork\EightWayTrack\BSP\TIMER -I .\softwork\EightWayTrack\BSP\UART -I .\softwork\STM32Core_SDK_IICXJ\Source\Drive -I .\softwork\STM32Core_SDK_IICXJ\Source\wit_c_sdk-I.\RTE\_Target_1-IF:\keil5\keil\MDK\ARM\PACK\Keil\STM32F1xx_DFP\2.3.0\Device\Include-IF:\keil5\keil\MDK\ARM\CMSIS\Include-D__UVISION_VERSION="527" -DSTM32F10X_HD -DSTM32F10X_HD -DUSE_STDPERIPH_DRIVER-o .\objects\bsp_motor.o --omf_browse .\objects\bsp_motor.crf --depend .\objects\bsp_motor.d)
+I (Hardware\bsp_motor.h)(0x697B2C76)
 I (..\JKXie\绋嬪簭婧愮爜\STM32Project-鏃犳敞閲婄増\2-1 STM32宸ョ▼妯℃澘\Start\stm32f10x.h)(0x00000000)
 I (..\JKXie\绋嬪簭婧愮爜\STM32Project-鏃犳敞閲婄増\2-1 STM32宸ョ▼妯℃澘\Start\core_cm3.h)(0x00000000)
 I (F:\keil5\keil\MDK\ARM\ARMCC\include\stdint.h)(0x599ECD2E)
@@ -440,25 +440,25 @@ I (.\Library\stm32f10x_tim.h)(0x4D783BB4)
 I (.\Library\stm32f10x_usart.h)(0x4D783BB4)
 I (.\Library\stm32f10x_wwdg.h)(0x4D783BB4)
 I (.\Library\misc.h)(0x4D783BB4)
-I (.\User\AllHeader.h)(0x697183F1)
+I (.\User\AllHeader.h)(0x697AE65F)
 I (F:\keil5\keil\MDK\ARM\ARMCC\include\stdbool.h)(0x599ECD2E)
 I (.\Hardware\bsp.h)(0x6949F3AE)
-I (.\Hardware\bsp_common.h)(0x6970C237)
+I (.\Hardware\bsp_common.h)(0x697AE65F)
 I (.\System\delay.h)(0x694A95CD)
 I (.\Hardware\bsp_usart.h)(0x6949F3CB)
 I (.\Hardware\app_motor.h)(0x69709CC0)
-I (.\Hardware\bsp_motor.h)(0x69709CC0)
-I (.\Hardware\bsp_encoder.h)(0x69709CC0)
+I (.\Hardware\bsp_motor.h)(0x697B2C76)
+I (.\Hardware\bsp_encoder.h)(0x697C1D90)
 I (.\Hardware\Tracking.h)(0x69662B49)
 I (.\Hardware\bsp_timer.h)(0x6969D00A)
 I (.\Hardware\HCSR04.h)(0x6949FAB3)
 I (.\Hardware\app_usart.h)(0x6949F3AC)
 I (.\Hardware\app_irtracking.h)(0x6949F3AC)
-I (.\Hardware\app_control.h)(0x6976DB55)
+I (.\Hardware\app_control.h)(0x697C7802)
 F (.\Hardware\app_usart.h)(0x6949F3AC)()
 F (.\Hardware\bsp.c)(0x69709CC0)(--c99 --gnu -c --cpu Cortex-M3 -g -O0 --apcs=interwork --split_sections -I "..\JKXie\程序源码\STM32Project-无注释版\2-1 STM32工程模板\Start" -I .\User -I .\Library -I .\System -I .\Hardware -I .\softwork\EightWayTrack\BSP -I .\softwork\EightWayTrack\CMSIS -I .\softwork\EightWayTrack\FWLib -I .\softwork\EightWayTrack\OBJ -I .\softwork\EightWayTrack\BSP\Motor -I .\softwork\EightWayTrack\BSP\TIMER -I .\softwork\EightWayTrack\BSP\UART -I .\softwork\STM32Core_SDK_IICXJ\Source\Drive -I .\softwork\STM32Core_SDK_IICXJ\Source\wit_c_sdk-I.\RTE\_Target_1-IF:\keil5\keil\MDK\ARM\PACK\Keil\STM32F1xx_DFP\2.3.0\Device\Include-IF:\keil5\keil\MDK\ARM\CMSIS\Include-D__UVISION_VERSION="527" -DSTM32F10X_HD -DSTM32F10X_HD -DUSE_STDPERIPH_DRIVER-o .\objects\bsp.o --omf_browse .\objects\bsp.crf --depend .\objects\bsp.d)
 I (Hardware\bsp.h)(0x6949F3AE)
-I (.\User\AllHeader.h)(0x697183F1)
+I (.\User\AllHeader.h)(0x697AE65F)
 I (F:\keil5\keil\MDK\ARM\ARMCC\include\stdio.h)(0x599ECD2C)
 I (F:\keil5\keil\MDK\ARM\ARMCC\include\stdbool.h)(0x599ECD2E)
 I (F:\keil5\keil\MDK\ARM\ARMCC\include\string.h)(0x599ECD2C)
@@ -491,21 +491,21 @@ I (.\Library\stm32f10x_usart.h)(0x4D783BB4)
 I (.\Library\stm32f10x_wwdg.h)(0x4D783BB4)
 I (.\Library\misc.h)(0x4D783BB4)
 I (.\Hardware\bsp.h)(0x6949F3AE)
-I (.\Hardware\bsp_common.h)(0x6970C237)
+I (.\Hardware\bsp_common.h)(0x697AE65F)
 I (.\System\delay.h)(0x694A95CD)
 I (.\Hardware\bsp_usart.h)(0x6949F3CB)
 I (.\Hardware\app_motor.h)(0x69709CC0)
-I (.\Hardware\bsp_motor.h)(0x69709CC0)
-I (.\Hardware\bsp_encoder.h)(0x69709CC0)
+I (.\Hardware\bsp_motor.h)(0x697B2C76)
+I (.\Hardware\bsp_encoder.h)(0x697C1D90)
 I (.\Hardware\Tracking.h)(0x69662B49)
 I (.\Hardware\bsp_timer.h)(0x6969D00A)
 I (.\Hardware\HCSR04.h)(0x6949FAB3)
 I (.\Hardware\app_usart.h)(0x6949F3AC)
 I (F:\keil5\keil\MDK\ARM\ARMCC\include\stdlib.h)(0x599ECD2C)
 I (.\Hardware\app_irtracking.h)(0x6949F3AC)
-I (.\Hardware\app_control.h)(0x6976DB55)
+I (.\Hardware\app_control.h)(0x697C7802)
 F (.\Hardware\bsp_usart.c)(0x6949F3CB)(--c99 --gnu -c --cpu Cortex-M3 -g -O0 --apcs=interwork --split_sections -I "..\JKXie\程序源码\STM32Project-无注释版\2-1 STM32工程模板\Start" -I .\User -I .\Library -I .\System -I .\Hardware -I .\softwork\EightWayTrack\BSP -I .\softwork\EightWayTrack\CMSIS -I .\softwork\EightWayTrack\FWLib -I .\softwork\EightWayTrack\OBJ -I .\softwork\EightWayTrack\BSP\Motor -I .\softwork\EightWayTrack\BSP\TIMER -I .\softwork\EightWayTrack\BSP\UART -I .\softwork\STM32Core_SDK_IICXJ\Source\Drive -I .\softwork\STM32Core_SDK_IICXJ\Source\wit_c_sdk-I.\RTE\_Target_1-IF:\keil5\keil\MDK\ARM\PACK\Keil\STM32F1xx_DFP\2.3.0\Device\Include-IF:\keil5\keil\MDK\ARM\CMSIS\Include-D__UVISION_VERSION="527" -DSTM32F10X_HD -DSTM32F10X_HD -DUSE_STDPERIPH_DRIVER-o .\objects\bsp_usart.o --omf_browse .\objects\bsp_usart.crf --depend .\objects\bsp_usart.d)
-I (.\User\AllHeader.h)(0x697183F1)
+I (.\User\AllHeader.h)(0x697AE65F)
 I (F:\keil5\keil\MDK\ARM\ARMCC\include\stdio.h)(0x599ECD2C)
 I (F:\keil5\keil\MDK\ARM\ARMCC\include\stdbool.h)(0x599ECD2E)
 I (F:\keil5\keil\MDK\ARM\ARMCC\include\string.h)(0x599ECD2C)
@@ -538,19 +538,19 @@ I (.\Library\stm32f10x_usart.h)(0x4D783BB4)
 I (.\Library\stm32f10x_wwdg.h)(0x4D783BB4)
 I (.\Library\misc.h)(0x4D783BB4)
 I (.\Hardware\bsp.h)(0x6949F3AE)
-I (.\Hardware\bsp_common.h)(0x6970C237)
+I (.\Hardware\bsp_common.h)(0x697AE65F)
 I (.\System\delay.h)(0x694A95CD)
 I (.\Hardware\bsp_usart.h)(0x6949F3CB)
 I (.\Hardware\app_motor.h)(0x69709CC0)
-I (.\Hardware\bsp_motor.h)(0x69709CC0)
-I (.\Hardware\bsp_encoder.h)(0x69709CC0)
+I (.\Hardware\bsp_motor.h)(0x697B2C76)
+I (.\Hardware\bsp_encoder.h)(0x697C1D90)
 I (.\Hardware\Tracking.h)(0x69662B49)
 I (.\Hardware\bsp_timer.h)(0x6969D00A)
 I (.\Hardware\HCSR04.h)(0x6949FAB3)
 I (.\Hardware\app_usart.h)(0x6949F3AC)
 I (F:\keil5\keil\MDK\ARM\ARMCC\include\stdlib.h)(0x599ECD2C)
 I (.\Hardware\app_irtracking.h)(0x6949F3AC)
-I (.\Hardware\app_control.h)(0x6976DB55)
+I (.\Hardware\app_control.h)(0x697C7802)
 F (.\Hardware\DHT11.c)(0x6933B9D4)(--c99 --gnu -c --cpu Cortex-M3 -g -O0 --apcs=interwork --split_sections -I "..\JKXie\程序源码\STM32Project-无注释版\2-1 STM32工程模板\Start" -I .\User -I .\Library -I .\System -I .\Hardware -I .\softwork\EightWayTrack\BSP -I .\softwork\EightWayTrack\CMSIS -I .\softwork\EightWayTrack\FWLib -I .\softwork\EightWayTrack\OBJ -I .\softwork\EightWayTrack\BSP\Motor -I .\softwork\EightWayTrack\BSP\TIMER -I .\softwork\EightWayTrack\BSP\UART -I .\softwork\STM32Core_SDK_IICXJ\Source\Drive -I .\softwork\STM32Core_SDK_IICXJ\Source\wit_c_sdk-I.\RTE\_Target_1-IF:\keil5\keil\MDK\ARM\PACK\Keil\STM32F1xx_DFP\2.3.0\Device\Include-IF:\keil5\keil\MDK\ARM\CMSIS\Include-D__UVISION_VERSION="527" -DSTM32F10X_HD -DSTM32F10X_HD -DUSE_STDPERIPH_DRIVER-o .\objects\dht11.o --omf_browse .\objects\dht11.crf --depend .\objects\dht11.d)
 I (..\JKXie\绋嬪簭婧愮爜\STM32Project-鏃犳敞閲婄増\2-1 STM32宸ョ▼妯℃澘\Start\stm32f10x.h)(0x00000000)
 I (..\JKXie\绋嬪簭婧愮爜\STM32Project-鏃犳敞閲婄増\2-1 STM32宸ョ▼妯℃澘\Start\core_cm3.h)(0x00000000)
@@ -582,7 +582,7 @@ I (.\Library\stm32f10x_wwdg.h)(0x4D783BB4)
 I (.\Library\misc.h)(0x4D783BB4)
 I (Hardware\dht11.h)(0x694A5307)
 I (.\System\Delay.h)(0x694A95CD)
-F (.\Hardware\HCSR04.c)(0x6972E550)(--c99 --gnu -c --cpu Cortex-M3 -g -O0 --apcs=interwork --split_sections -I "..\JKXie\程序源码\STM32Project-无注释版\2-1 STM32工程模板\Start" -I .\User -I .\Library -I .\System -I .\Hardware -I .\softwork\EightWayTrack\BSP -I .\softwork\EightWayTrack\CMSIS -I .\softwork\EightWayTrack\FWLib -I .\softwork\EightWayTrack\OBJ -I .\softwork\EightWayTrack\BSP\Motor -I .\softwork\EightWayTrack\BSP\TIMER -I .\softwork\EightWayTrack\BSP\UART -I .\softwork\STM32Core_SDK_IICXJ\Source\Drive -I .\softwork\STM32Core_SDK_IICXJ\Source\wit_c_sdk-I.\RTE\_Target_1-IF:\keil5\keil\MDK\ARM\PACK\Keil\STM32F1xx_DFP\2.3.0\Device\Include-IF:\keil5\keil\MDK\ARM\CMSIS\Include-D__UVISION_VERSION="527" -DSTM32F10X_HD -DSTM32F10X_HD -DUSE_STDPERIPH_DRIVER-o .\objects\hcsr04.o --omf_browse .\objects\hcsr04.crf --depend .\objects\hcsr04.d)
+F (.\Hardware\HCSR04.c)(0x697AE65F)(--c99 --gnu -c --cpu Cortex-M3 -g -O0 --apcs=interwork --split_sections -I "..\JKXie\程序源码\STM32Project-无注释版\2-1 STM32工程模板\Start" -I .\User -I .\Library -I .\System -I .\Hardware -I .\softwork\EightWayTrack\BSP -I .\softwork\EightWayTrack\CMSIS -I .\softwork\EightWayTrack\FWLib -I .\softwork\EightWayTrack\OBJ -I .\softwork\EightWayTrack\BSP\Motor -I .\softwork\EightWayTrack\BSP\TIMER -I .\softwork\EightWayTrack\BSP\UART -I .\softwork\STM32Core_SDK_IICXJ\Source\Drive -I .\softwork\STM32Core_SDK_IICXJ\Source\wit_c_sdk-I.\RTE\_Target_1-IF:\keil5\keil\MDK\ARM\PACK\Keil\STM32F1xx_DFP\2.3.0\Device\Include-IF:\keil5\keil\MDK\ARM\CMSIS\Include-D__UVISION_VERSION="527" -DSTM32F10X_HD -DSTM32F10X_HD -DUSE_STDPERIPH_DRIVER-o .\objects\hcsr04.o --omf_browse .\objects\hcsr04.crf --depend .\objects\hcsr04.d)
 I (Hardware\HCSR04.h)(0x6949FAB3)
 I (..\JKXie\绋嬪簭婧愮爜\STM32Project-鏃犳敞閲婄増\2-1 STM32宸ョ▼妯℃澘\Start\stm32f10x.h)(0x00000000)
 I (..\JKXie\绋嬪簭婧愮爜\STM32Project-鏃犳敞閲婄増\2-1 STM32宸ョ▼妯℃澘\Start\core_cm3.h)(0x00000000)
@@ -614,9 +614,9 @@ I (.\Library\stm32f10x_wwdg.h)(0x4D783BB4)
 I (.\Library\misc.h)(0x4D783BB4)
 I (.\System\Delay.h)(0x694A95CD)
 I (Hardware\bsp_systick.h)(0x69704333)
-F (.\Hardware\IOI2C.c)(0x69662B49)(--c99 --gnu -c --cpu Cortex-M3 -g -O0 --apcs=interwork --split_sections -I "..\JKXie\程序源码\STM32Project-无注释版\2-1 STM32工程模板\Start" -I .\User -I .\Library -I .\System -I .\Hardware -I .\softwork\EightWayTrack\BSP -I .\softwork\EightWayTrack\CMSIS -I .\softwork\EightWayTrack\FWLib -I .\softwork\EightWayTrack\OBJ -I .\softwork\EightWayTrack\BSP\Motor -I .\softwork\EightWayTrack\BSP\TIMER -I .\softwork\EightWayTrack\BSP\UART -I .\softwork\STM32Core_SDK_IICXJ\Source\Drive -I .\softwork\STM32Core_SDK_IICXJ\Source\wit_c_sdk-I.\RTE\_Target_1-IF:\keil5\keil\MDK\ARM\PACK\Keil\STM32F1xx_DFP\2.3.0\Device\Include-IF:\keil5\keil\MDK\ARM\CMSIS\Include-D__UVISION_VERSION="527" -DSTM32F10X_HD -DSTM32F10X_HD -DUSE_STDPERIPH_DRIVER-o .\objects\ioi2c.o --omf_browse .\objects\ioi2c.crf --depend .\objects\ioi2c.d)
-I (Hardware\IOI2C.h)(0x69662B49)
-I (.\User\AllHeader.h)(0x697183F1)
+F (.\Hardware\IOI2C.c)(0x697B2C76)(--c99 --gnu -c --cpu Cortex-M3 -g -O0 --apcs=interwork --split_sections -I "..\JKXie\程序源码\STM32Project-无注释版\2-1 STM32工程模板\Start" -I .\User -I .\Library -I .\System -I .\Hardware -I .\softwork\EightWayTrack\BSP -I .\softwork\EightWayTrack\CMSIS -I .\softwork\EightWayTrack\FWLib -I .\softwork\EightWayTrack\OBJ -I .\softwork\EightWayTrack\BSP\Motor -I .\softwork\EightWayTrack\BSP\TIMER -I .\softwork\EightWayTrack\BSP\UART -I .\softwork\STM32Core_SDK_IICXJ\Source\Drive -I .\softwork\STM32Core_SDK_IICXJ\Source\wit_c_sdk-I.\RTE\_Target_1-IF:\keil5\keil\MDK\ARM\PACK\Keil\STM32F1xx_DFP\2.3.0\Device\Include-IF:\keil5\keil\MDK\ARM\CMSIS\Include-D__UVISION_VERSION="527" -DSTM32F10X_HD -DSTM32F10X_HD -DUSE_STDPERIPH_DRIVER-o .\objects\ioi2c.o --omf_browse .\objects\ioi2c.crf --depend .\objects\ioi2c.d)
+I (Hardware\IOI2C.h)(0x697B2C76)
+I (.\User\AllHeader.h)(0x697AE65F)
 I (F:\keil5\keil\MDK\ARM\ARMCC\include\stdio.h)(0x599ECD2C)
 I (F:\keil5\keil\MDK\ARM\ARMCC\include\stdbool.h)(0x599ECD2E)
 I (F:\keil5\keil\MDK\ARM\ARMCC\include\string.h)(0x599ECD2C)
@@ -649,19 +649,19 @@ I (.\Library\stm32f10x_usart.h)(0x4D783BB4)
 I (.\Library\stm32f10x_wwdg.h)(0x4D783BB4)
 I (.\Library\misc.h)(0x4D783BB4)
 I (.\Hardware\bsp.h)(0x6949F3AE)
-I (.\Hardware\bsp_common.h)(0x6970C237)
+I (.\Hardware\bsp_common.h)(0x697AE65F)
 I (.\System\delay.h)(0x694A95CD)
 I (.\Hardware\bsp_usart.h)(0x6949F3CB)
 I (.\Hardware\app_motor.h)(0x69709CC0)
-I (.\Hardware\bsp_motor.h)(0x69709CC0)
-I (.\Hardware\bsp_encoder.h)(0x69709CC0)
+I (.\Hardware\bsp_motor.h)(0x697B2C76)
+I (.\Hardware\bsp_encoder.h)(0x697C1D90)
 I (.\Hardware\Tracking.h)(0x69662B49)
 I (.\Hardware\bsp_timer.h)(0x6969D00A)
 I (.\Hardware\HCSR04.h)(0x6949FAB3)
 I (.\Hardware\app_usart.h)(0x6949F3AC)
 I (F:\keil5\keil\MDK\ARM\ARMCC\include\stdlib.h)(0x599ECD2C)
 I (.\Hardware\app_irtracking.h)(0x6949F3AC)
-I (.\Hardware\app_control.h)(0x6976DB55)
+I (.\Hardware\app_control.h)(0x697C7802)
 F (.\Hardware\JY301P.c)(0x69664677)(--c99 --gnu -c --cpu Cortex-M3 -g -O0 --apcs=interwork --split_sections -I "..\JKXie\程序源码\STM32Project-无注释版\2-1 STM32工程模板\Start" -I .\User -I .\Library -I .\System -I .\Hardware -I .\softwork\EightWayTrack\BSP -I .\softwork\EightWayTrack\CMSIS -I .\softwork\EightWayTrack\FWLib -I .\softwork\EightWayTrack\OBJ -I .\softwork\EightWayTrack\BSP\Motor -I .\softwork\EightWayTrack\BSP\TIMER -I .\softwork\EightWayTrack\BSP\UART -I .\softwork\STM32Core_SDK_IICXJ\Source\Drive -I .\softwork\STM32Core_SDK_IICXJ\Source\wit_c_sdk-I.\RTE\_Target_1-IF:\keil5\keil\MDK\ARM\PACK\Keil\STM32F1xx_DFP\2.3.0\Device\Include-IF:\keil5\keil\MDK\ARM\CMSIS\Include-D__UVISION_VERSION="527" -DSTM32F10X_HD -DSTM32F10X_HD -DUSE_STDPERIPH_DRIVER-o .\objects\jy301p.o --omf_browse .\objects\jy301p.crf --depend .\objects\jy301p.d)
 I (Hardware\JY301P.h)(0x69662A09)
 I (..\JKXie\绋嬪簭婧愮爜\STM32Project-鏃犳敞閲婄増\2-1 STM32宸ョ▼妯℃澘\Start\stm32f10x.h)(0x00000000)
@@ -695,24 +695,24 @@ I (.\Library\misc.h)(0x4D783BB4)
 I (Hardware\wit_c_sdk.h)(0x649BE0EA)
 I (F:\keil5\keil\MDK\ARM\ARMCC\include\stdio.h)(0x599ECD2C)
 I (F:\keil5\keil\MDK\ARM\ARMCC\include\string.h)(0x599ECD2C)
-I (Hardware\REG.h)(0x6974C356)
-I (Hardware\IOI2C.h)(0x69662B49)
-I (.\User\AllHeader.h)(0x697183F1)
+I (Hardware\REG.h)(0x697AE65F)
+I (Hardware\IOI2C.h)(0x697B2C76)
+I (.\User\AllHeader.h)(0x697AE65F)
 I (F:\keil5\keil\MDK\ARM\ARMCC\include\stdbool.h)(0x599ECD2E)
 I (.\Hardware\bsp.h)(0x6949F3AE)
-I (.\Hardware\bsp_common.h)(0x6970C237)
+I (.\Hardware\bsp_common.h)(0x697AE65F)
 I (.\System\delay.h)(0x694A95CD)
 I (.\Hardware\bsp_usart.h)(0x6949F3CB)
 I (.\Hardware\app_motor.h)(0x69709CC0)
-I (.\Hardware\bsp_motor.h)(0x69709CC0)
-I (.\Hardware\bsp_encoder.h)(0x69709CC0)
+I (.\Hardware\bsp_motor.h)(0x697B2C76)
+I (.\Hardware\bsp_encoder.h)(0x697C1D90)
 I (.\Hardware\Tracking.h)(0x69662B49)
 I (.\Hardware\bsp_timer.h)(0x6969D00A)
 I (.\Hardware\HCSR04.h)(0x6949FAB3)
 I (.\Hardware\app_usart.h)(0x6949F3AC)
 I (F:\keil5\keil\MDK\ARM\ARMCC\include\stdlib.h)(0x599ECD2C)
 I (.\Hardware\app_irtracking.h)(0x6949F3AC)
-I (.\Hardware\app_control.h)(0x6976DB55)
+I (.\Hardware\app_control.h)(0x697C7802)
 I (Hardware\OLED.h)(0x6969D00A)
 F (.\Hardware\MyI2C.c)(0x69662B49)(--c99 --gnu -c --cpu Cortex-M3 -g -O0 --apcs=interwork --split_sections -I "..\JKXie\程序源码\STM32Project-无注释版\2-1 STM32工程模板\Start" -I .\User -I .\Library -I .\System -I .\Hardware -I .\softwork\EightWayTrack\BSP -I .\softwork\EightWayTrack\CMSIS -I .\softwork\EightWayTrack\FWLib -I .\softwork\EightWayTrack\OBJ -I .\softwork\EightWayTrack\BSP\Motor -I .\softwork\EightWayTrack\BSP\TIMER -I .\softwork\EightWayTrack\BSP\UART -I .\softwork\STM32Core_SDK_IICXJ\Source\Drive -I .\softwork\STM32Core_SDK_IICXJ\Source\wit_c_sdk-I.\RTE\_Target_1-IF:\keil5\keil\MDK\ARM\PACK\Keil\STM32F1xx_DFP\2.3.0\Device\Include-IF:\keil5\keil\MDK\ARM\CMSIS\Include-D__UVISION_VERSION="527" -DSTM32F10X_HD -DSTM32F10X_HD -DUSE_STDPERIPH_DRIVER-o .\objects\myi2c.o --omf_browse .\objects\myi2c.crf --depend .\objects\myi2c.d)
 I (..\JKXie\绋嬪簭婧愮爜\STM32Project-鏃犳敞閲婄増\2-1 STM32宸ョ▼妯℃澘\Start\stm32f10x.h)(0x00000000)
@@ -745,7 +745,7 @@ I (.\Library\stm32f10x_wwdg.h)(0x4D783BB4)
 I (.\Library\misc.h)(0x4D783BB4)
 I (.\System\Delay.h)(0x694A95CD)
 F (.\Hardware\MyI2C.h)(0x6963B547)()
-F (.\Hardware\HW_I2C.c)(0x69664677)(--c99 --gnu -c --cpu Cortex-M3 -g -O0 --apcs=interwork --split_sections -I "..\JKXie\程序源码\STM32Project-无注释版\2-1 STM32工程模板\Start" -I .\User -I .\Library -I .\System -I .\Hardware -I .\softwork\EightWayTrack\BSP -I .\softwork\EightWayTrack\CMSIS -I .\softwork\EightWayTrack\FWLib -I .\softwork\EightWayTrack\OBJ -I .\softwork\EightWayTrack\BSP\Motor -I .\softwork\EightWayTrack\BSP\TIMER -I .\softwork\EightWayTrack\BSP\UART -I .\softwork\STM32Core_SDK_IICXJ\Source\Drive -I .\softwork\STM32Core_SDK_IICXJ\Source\wit_c_sdk-I.\RTE\_Target_1-IF:\keil5\keil\MDK\ARM\PACK\Keil\STM32F1xx_DFP\2.3.0\Device\Include-IF:\keil5\keil\MDK\ARM\CMSIS\Include-D__UVISION_VERSION="527" -DSTM32F10X_HD -DSTM32F10X_HD -DUSE_STDPERIPH_DRIVER-o .\objects\hw_i2c.o --omf_browse .\objects\hw_i2c.crf --depend .\objects\hw_i2c.d)
+F (.\Hardware\HW_I2C.c)(0x697B2C76)(--c99 --gnu -c --cpu Cortex-M3 -g -O0 --apcs=interwork --split_sections -I "..\JKXie\程序源码\STM32Project-无注释版\2-1 STM32工程模板\Start" -I .\User -I .\Library -I .\System -I .\Hardware -I .\softwork\EightWayTrack\BSP -I .\softwork\EightWayTrack\CMSIS -I .\softwork\EightWayTrack\FWLib -I .\softwork\EightWayTrack\OBJ -I .\softwork\EightWayTrack\BSP\Motor -I .\softwork\EightWayTrack\BSP\TIMER -I .\softwork\EightWayTrack\BSP\UART -I .\softwork\STM32Core_SDK_IICXJ\Source\Drive -I .\softwork\STM32Core_SDK_IICXJ\Source\wit_c_sdk-I.\RTE\_Target_1-IF:\keil5\keil\MDK\ARM\PACK\Keil\STM32F1xx_DFP\2.3.0\Device\Include-IF:\keil5\keil\MDK\ARM\CMSIS\Include-D__UVISION_VERSION="527" -DSTM32F10X_HD -DSTM32F10X_HD -DUSE_STDPERIPH_DRIVER-o .\objects\hw_i2c.o --omf_browse .\objects\hw_i2c.crf --depend .\objects\hw_i2c.d)
 I (..\JKXie\绋嬪簭婧愮爜\STM32Project-鏃犳敞閲婄増\2-1 STM32宸ョ▼妯℃澘\Start\stm32f10x.h)(0x00000000)
 I (..\JKXie\绋嬪簭婧愮爜\STM32Project-鏃犳敞閲婄増\2-1 STM32宸ョ▼妯℃澘\Start\core_cm3.h)(0x00000000)
 I (F:\keil5\keil\MDK\ARM\ARMCC\include\stdint.h)(0x599ECD2E)
@@ -811,11 +811,11 @@ I (Hardware\JY301P.h)(0x69662A09)
 I (Hardware\wit_c_sdk.h)(0x649BE0EA)
 I (F:\keil5\keil\MDK\ARM\ARMCC\include\stdio.h)(0x599ECD2C)
 I (F:\keil5\keil\MDK\ARM\ARMCC\include\string.h)(0x599ECD2C)
-I (Hardware\REG.h)(0x6974C356)
+I (Hardware\REG.h)(0x697AE65F)
 I (F:\keil5\keil\MDK\ARM\ARMCC\include\math.h)(0x599ECD2E)
 F (.\Hardware\app_stats.h)(0x6969D00A)()
-F (.\Hardware\app_ui.c)(0x6976F35E)(--c99 --gnu -c --cpu Cortex-M3 -g -O0 --apcs=interwork --split_sections -I "..\JKXie\程序源码\STM32Project-无注释版\2-1 STM32工程模板\Start" -I .\User -I .\Library -I .\System -I .\Hardware -I .\softwork\EightWayTrack\BSP -I .\softwork\EightWayTrack\CMSIS -I .\softwork\EightWayTrack\FWLib -I .\softwork\EightWayTrack\OBJ -I .\softwork\EightWayTrack\BSP\Motor -I .\softwork\EightWayTrack\BSP\TIMER -I .\softwork\EightWayTrack\BSP\UART -I .\softwork\STM32Core_SDK_IICXJ\Source\Drive -I .\softwork\STM32Core_SDK_IICXJ\Source\wit_c_sdk-I.\RTE\_Target_1-IF:\keil5\keil\MDK\ARM\PACK\Keil\STM32F1xx_DFP\2.3.0\Device\Include-IF:\keil5\keil\MDK\ARM\CMSIS\Include-D__UVISION_VERSION="527" -DSTM32F10X_HD -DSTM32F10X_HD -DUSE_STDPERIPH_DRIVER-o .\objects\app_ui.o --omf_browse .\objects\app_ui.crf --depend .\objects\app_ui.d)
-I (Hardware\app_ui.h)(0x6976F35E)
+F (.\Hardware\app_ui.c)(0x697C7802)(--c99 --gnu -c --cpu Cortex-M3 -g -O0 --apcs=interwork --split_sections -I "..\JKXie\程序源码\STM32Project-无注释版\2-1 STM32工程模板\Start" -I .\User -I .\Library -I .\System -I .\Hardware -I .\softwork\EightWayTrack\BSP -I .\softwork\EightWayTrack\CMSIS -I .\softwork\EightWayTrack\FWLib -I .\softwork\EightWayTrack\OBJ -I .\softwork\EightWayTrack\BSP\Motor -I .\softwork\EightWayTrack\BSP\TIMER -I .\softwork\EightWayTrack\BSP\UART -I .\softwork\STM32Core_SDK_IICXJ\Source\Drive -I .\softwork\STM32Core_SDK_IICXJ\Source\wit_c_sdk-I.\RTE\_Target_1-IF:\keil5\keil\MDK\ARM\PACK\Keil\STM32F1xx_DFP\2.3.0\Device\Include-IF:\keil5\keil\MDK\ARM\CMSIS\Include-D__UVISION_VERSION="527" -DSTM32F10X_HD -DSTM32F10X_HD -DUSE_STDPERIPH_DRIVER-o .\objects\app_ui.o --omf_browse .\objects\app_ui.crf --depend .\objects\app_ui.d)
+I (Hardware\app_ui.h)(0x697C7802)
 I (..\JKXie\绋嬪簭婧愮爜\STM32Project-鏃犳敞閲婄増\2-1 STM32宸ョ▼妯℃澘\Start\stm32f10x.h)(0x00000000)
 I (..\JKXie\绋嬪簭婧愮爜\STM32Project-鏃犳敞閲婄増\2-1 STM32宸ョ▼妯℃澘\Start\core_cm3.h)(0x00000000)
 I (F:\keil5\keil\MDK\ARM\ARMCC\include\stdint.h)(0x599ECD2E)
@@ -849,12 +849,12 @@ I (Hardware\JY301P.h)(0x69662A09)
 I (Hardware\wit_c_sdk.h)(0x649BE0EA)
 I (F:\keil5\keil\MDK\ARM\ARMCC\include\stdio.h)(0x599ECD2C)
 I (F:\keil5\keil\MDK\ARM\ARMCC\include\string.h)(0x599ECD2C)
-I (Hardware\REG.h)(0x6974C356)
+I (Hardware\REG.h)(0x697AE65F)
 I (Hardware\app_stats.h)(0x6969D00A)
 I (Hardware\bsp_systick.h)(0x69704333)
 I (Hardware\bsp_key.h)(0x69709CC0)
-I (Hardware\bsp_led_pwm.h)(0x6976F35E)
-F (.\Hardware\app_ui.h)(0x6976F35E)()
+I (Hardware\bsp_led_pwm.h)(0x697AE65F)
+F (.\Hardware\app_ui.h)(0x697C7802)()
 F (.\Hardware\bsp_key.c)(0x69709D85)(--c99 --gnu -c --cpu Cortex-M3 -g -O0 --apcs=interwork --split_sections -I "..\JKXie\程序源码\STM32Project-无注释版\2-1 STM32工程模板\Start" -I .\User -I .\Library -I .\System -I .\Hardware -I .\softwork\EightWayTrack\BSP -I .\softwork\EightWayTrack\CMSIS -I .\softwork\EightWayTrack\FWLib -I .\softwork\EightWayTrack\OBJ -I .\softwork\EightWayTrack\BSP\Motor -I .\softwork\EightWayTrack\BSP\TIMER -I .\softwork\EightWayTrack\BSP\UART -I .\softwork\STM32Core_SDK_IICXJ\Source\Drive -I .\softwork\STM32Core_SDK_IICXJ\Source\wit_c_sdk-I.\RTE\_Target_1-IF:\keil5\keil\MDK\ARM\PACK\Keil\STM32F1xx_DFP\2.3.0\Device\Include-IF:\keil5\keil\MDK\ARM\CMSIS\Include-D__UVISION_VERSION="527" -DSTM32F10X_HD -DSTM32F10X_HD -DUSE_STDPERIPH_DRIVER-o .\objects\bsp_key.o --omf_browse .\objects\bsp_key.crf --depend .\objects\bsp_key.d)
 I (Hardware\bsp_key.h)(0x69709CC0)
 I (..\JKXie\绋嬪簭婧愮爜\STM32Project-鏃犳敞閲婄増\2-1 STM32宸ョ▼妯℃澘\Start\stm32f10x.h)(0x00000000)
@@ -920,8 +920,8 @@ I (.\Library\stm32f10x_wwdg.h)(0x4D783BB4)
 I (.\Library\misc.h)(0x4D783BB4)
 I (Hardware\bsp_key2.h)(0x69709CC0)
 F (.\Hardware\bsp_systick.h)(0x69704333)()
-F (.\Hardware\bsp_led.c)(0x6976D7BF)(--c99 --gnu -c --cpu Cortex-M3 -g -O0 --apcs=interwork --split_sections -I "..\JKXie\程序源码\STM32Project-无注释版\2-1 STM32工程模板\Start" -I .\User -I .\Library -I .\System -I .\Hardware -I .\softwork\EightWayTrack\BSP -I .\softwork\EightWayTrack\CMSIS -I .\softwork\EightWayTrack\FWLib -I .\softwork\EightWayTrack\OBJ -I .\softwork\EightWayTrack\BSP\Motor -I .\softwork\EightWayTrack\BSP\TIMER -I .\softwork\EightWayTrack\BSP\UART -I .\softwork\STM32Core_SDK_IICXJ\Source\Drive -I .\softwork\STM32Core_SDK_IICXJ\Source\wit_c_sdk-I.\RTE\_Target_1-IF:\keil5\keil\MDK\ARM\PACK\Keil\STM32F1xx_DFP\2.3.0\Device\Include-IF:\keil5\keil\MDK\ARM\CMSIS\Include-D__UVISION_VERSION="527" -DSTM32F10X_HD -DSTM32F10X_HD -DUSE_STDPERIPH_DRIVER-o .\objects\bsp_led.o --omf_browse .\objects\bsp_led.crf --depend .\objects\bsp_led.d)
-I (Hardware\bsp_led.h)(0x6976D7B8)
+F (.\Hardware\bsp_led.c)(0x697AE65F)(--c99 --gnu -c --cpu Cortex-M3 -g -O0 --apcs=interwork --split_sections -I "..\JKXie\程序源码\STM32Project-无注释版\2-1 STM32工程模板\Start" -I .\User -I .\Library -I .\System -I .\Hardware -I .\softwork\EightWayTrack\BSP -I .\softwork\EightWayTrack\CMSIS -I .\softwork\EightWayTrack\FWLib -I .\softwork\EightWayTrack\OBJ -I .\softwork\EightWayTrack\BSP\Motor -I .\softwork\EightWayTrack\BSP\TIMER -I .\softwork\EightWayTrack\BSP\UART -I .\softwork\STM32Core_SDK_IICXJ\Source\Drive -I .\softwork\STM32Core_SDK_IICXJ\Source\wit_c_sdk-I.\RTE\_Target_1-IF:\keil5\keil\MDK\ARM\PACK\Keil\STM32F1xx_DFP\2.3.0\Device\Include-IF:\keil5\keil\MDK\ARM\CMSIS\Include-D__UVISION_VERSION="527" -DSTM32F10X_HD -DSTM32F10X_HD -DUSE_STDPERIPH_DRIVER-o .\objects\bsp_led.o --omf_browse .\objects\bsp_led.crf --depend .\objects\bsp_led.d)
+I (Hardware\bsp_led.h)(0x697AE65F)
 I (..\JKXie\绋嬪簭婧愮爜\STM32Project-鏃犳敞閲婄増\2-1 STM32宸ョ▼妯℃澘\Start\stm32f10x.h)(0x00000000)
 I (..\JKXie\绋嬪簭婧愮爜\STM32Project-鏃犳敞閲婄増\2-1 STM32宸ョ▼妯℃澘\Start\core_cm3.h)(0x00000000)
 I (F:\keil5\keil\MDK\ARM\ARMCC\include\stdint.h)(0x599ECD2E)
@@ -950,9 +950,9 @@ I (.\Library\stm32f10x_tim.h)(0x4D783BB4)
 I (.\Library\stm32f10x_usart.h)(0x4D783BB4)
 I (.\Library\stm32f10x_wwdg.h)(0x4D783BB4)
 I (.\Library\misc.h)(0x4D783BB4)
-F (.\Hardware\bsp_led.h)(0x6976D7B8)()
-F (.\Hardware\bsp_buzzer.c)(0x6976DB55)(--c99 --gnu -c --cpu Cortex-M3 -g -O0 --apcs=interwork --split_sections -I "..\JKXie\程序源码\STM32Project-无注释版\2-1 STM32工程模板\Start" -I .\User -I .\Library -I .\System -I .\Hardware -I .\softwork\EightWayTrack\BSP -I .\softwork\EightWayTrack\CMSIS -I .\softwork\EightWayTrack\FWLib -I .\softwork\EightWayTrack\OBJ -I .\softwork\EightWayTrack\BSP\Motor -I .\softwork\EightWayTrack\BSP\TIMER -I .\softwork\EightWayTrack\BSP\UART -I .\softwork\STM32Core_SDK_IICXJ\Source\Drive -I .\softwork\STM32Core_SDK_IICXJ\Source\wit_c_sdk-I.\RTE\_Target_1-IF:\keil5\keil\MDK\ARM\PACK\Keil\STM32F1xx_DFP\2.3.0\Device\Include-IF:\keil5\keil\MDK\ARM\CMSIS\Include-D__UVISION_VERSION="527" -DSTM32F10X_HD -DSTM32F10X_HD -DUSE_STDPERIPH_DRIVER-o .\objects\bsp_buzzer.o --omf_browse .\objects\bsp_buzzer.crf --depend .\objects\bsp_buzzer.d)
-I (Hardware\bsp_buzzer.h)(0x6976DB55)
+F (.\Hardware\bsp_led.h)(0x697AE65F)()
+F (.\Hardware\bsp_buzzer.c)(0x697AE65F)(--c99 --gnu -c --cpu Cortex-M3 -g -O0 --apcs=interwork --split_sections -I "..\JKXie\程序源码\STM32Project-无注释版\2-1 STM32工程模板\Start" -I .\User -I .\Library -I .\System -I .\Hardware -I .\softwork\EightWayTrack\BSP -I .\softwork\EightWayTrack\CMSIS -I .\softwork\EightWayTrack\FWLib -I .\softwork\EightWayTrack\OBJ -I .\softwork\EightWayTrack\BSP\Motor -I .\softwork\EightWayTrack\BSP\TIMER -I .\softwork\EightWayTrack\BSP\UART -I .\softwork\STM32Core_SDK_IICXJ\Source\Drive -I .\softwork\STM32Core_SDK_IICXJ\Source\wit_c_sdk-I.\RTE\_Target_1-IF:\keil5\keil\MDK\ARM\PACK\Keil\STM32F1xx_DFP\2.3.0\Device\Include-IF:\keil5\keil\MDK\ARM\CMSIS\Include-D__UVISION_VERSION="527" -DSTM32F10X_HD -DSTM32F10X_HD -DUSE_STDPERIPH_DRIVER-o .\objects\bsp_buzzer.o --omf_browse .\objects\bsp_buzzer.crf --depend .\objects\bsp_buzzer.d)
+I (Hardware\bsp_buzzer.h)(0x697AE65F)
 I (..\JKXie\绋嬪簭婧愮爜\STM32Project-鏃犳敞閲婄増\2-1 STM32宸ョ▼妯℃澘\Start\stm32f10x.h)(0x00000000)
 I (..\JKXie\绋嬪簭婧愮爜\STM32Project-鏃犳敞閲婄増\2-1 STM32宸ョ▼妯℃澘\Start\core_cm3.h)(0x00000000)
 I (F:\keil5\keil\MDK\ARM\ARMCC\include\stdint.h)(0x599ECD2E)
@@ -984,7 +984,7 @@ I (.\Library\misc.h)(0x4D783BB4)
 I (Hardware\bsp_pwm.h)(0x69709CC0)
 I (Hardware\bsp_systick.h)(0x69704333)
 I (F:\keil5\keil\MDK\ARM\ARMCC\include\stdlib.h)(0x599ECD2C)
-F (.\Hardware\bsp_buzzer.h)(0x6976DB55)()
+F (.\Hardware\bsp_buzzer.h)(0x697AE65F)()
 F (.\Hardware\bsp_pwm.c)(0x69709CC0)(--c99 --gnu -c --cpu Cortex-M3 -g -O0 --apcs=interwork --split_sections -I "..\JKXie\程序源码\STM32Project-无注释版\2-1 STM32工程模板\Start" -I .\User -I .\Library -I .\System -I .\Hardware -I .\softwork\EightWayTrack\BSP -I .\softwork\EightWayTrack\CMSIS -I .\softwork\EightWayTrack\FWLib -I .\softwork\EightWayTrack\OBJ -I .\softwork\EightWayTrack\BSP\Motor -I .\softwork\EightWayTrack\BSP\TIMER -I .\softwork\EightWayTrack\BSP\UART -I .\softwork\STM32Core_SDK_IICXJ\Source\Drive -I .\softwork\STM32Core_SDK_IICXJ\Source\wit_c_sdk-I.\RTE\_Target_1-IF:\keil5\keil\MDK\ARM\PACK\Keil\STM32F1xx_DFP\2.3.0\Device\Include-IF:\keil5\keil\MDK\ARM\CMSIS\Include-D__UVISION_VERSION="527" -DSTM32F10X_HD -DSTM32F10X_HD -DUSE_STDPERIPH_DRIVER-o .\objects\bsp_pwm.o --omf_browse .\objects\bsp_pwm.crf --depend .\objects\bsp_pwm.d)
 I (Hardware\bsp_pwm.h)(0x69709CC0)
 I (..\JKXie\绋嬪簭婧愮爜\STM32Project-鏃犳敞閲婄増\2-1 STM32宸ョ▼妯℃澘\Start\stm32f10x.h)(0x00000000)
@@ -1047,8 +1047,8 @@ I (.\Library\stm32f10x_usart.h)(0x4D783BB4)
 I (.\Library\stm32f10x_wwdg.h)(0x4D783BB4)
 I (.\Library\misc.h)(0x4D783BB4)
 F (.\Hardware\bsp_key2.h)(0x69709CC0)()
-F (.\Hardware\bsp_led_pwm.c)(0x6976F35E)(--c99 --gnu -c --cpu Cortex-M3 -g -O0 --apcs=interwork --split_sections -I "..\JKXie\程序源码\STM32Project-无注释版\2-1 STM32工程模板\Start" -I .\User -I .\Library -I .\System -I .\Hardware -I .\softwork\EightWayTrack\BSP -I .\softwork\EightWayTrack\CMSIS -I .\softwork\EightWayTrack\FWLib -I .\softwork\EightWayTrack\OBJ -I .\softwork\EightWayTrack\BSP\Motor -I .\softwork\EightWayTrack\BSP\TIMER -I .\softwork\EightWayTrack\BSP\UART -I .\softwork\STM32Core_SDK_IICXJ\Source\Drive -I .\softwork\STM32Core_SDK_IICXJ\Source\wit_c_sdk-I.\RTE\_Target_1-IF:\keil5\keil\MDK\ARM\PACK\Keil\STM32F1xx_DFP\2.3.0\Device\Include-IF:\keil5\keil\MDK\ARM\CMSIS\Include-D__UVISION_VERSION="527" -DSTM32F10X_HD -DSTM32F10X_HD -DUSE_STDPERIPH_DRIVER-o .\objects\bsp_led_pwm.o --omf_browse .\objects\bsp_led_pwm.crf --depend .\objects\bsp_led_pwm.d)
-I (Hardware\bsp_led_pwm.h)(0x6976F35E)
+F (.\Hardware\bsp_led_pwm.c)(0x697AE65F)(--c99 --gnu -c --cpu Cortex-M3 -g -O0 --apcs=interwork --split_sections -I "..\JKXie\程序源码\STM32Project-无注释版\2-1 STM32工程模板\Start" -I .\User -I .\Library -I .\System -I .\Hardware -I .\softwork\EightWayTrack\BSP -I .\softwork\EightWayTrack\CMSIS -I .\softwork\EightWayTrack\FWLib -I .\softwork\EightWayTrack\OBJ -I .\softwork\EightWayTrack\BSP\Motor -I .\softwork\EightWayTrack\BSP\TIMER -I .\softwork\EightWayTrack\BSP\UART -I .\softwork\STM32Core_SDK_IICXJ\Source\Drive -I .\softwork\STM32Core_SDK_IICXJ\Source\wit_c_sdk-I.\RTE\_Target_1-IF:\keil5\keil\MDK\ARM\PACK\Keil\STM32F1xx_DFP\2.3.0\Device\Include-IF:\keil5\keil\MDK\ARM\CMSIS\Include-D__UVISION_VERSION="527" -DSTM32F10X_HD -DSTM32F10X_HD -DUSE_STDPERIPH_DRIVER-o .\objects\bsp_led_pwm.o --omf_browse .\objects\bsp_led_pwm.crf --depend .\objects\bsp_led_pwm.d)
+I (Hardware\bsp_led_pwm.h)(0x697AE65F)
 I (..\JKXie\绋嬪簭婧愮爜\STM32Project-鏃犳敞閲婄増\2-1 STM32宸ョ▼妯℃澘\Start\stm32f10x.h)(0x00000000)
 I (..\JKXie\绋嬪簭婧愮爜\STM32Project-鏃犳敞閲婄増\2-1 STM32宸ョ▼妯℃澘\Start\core_cm3.h)(0x00000000)
 I (F:\keil5\keil\MDK\ARM\ARMCC\include\stdint.h)(0x599ECD2E)
@@ -1077,9 +1077,9 @@ I (.\Library\stm32f10x_tim.h)(0x4D783BB4)
 I (.\Library\stm32f10x_usart.h)(0x4D783BB4)
 I (.\Library\stm32f10x_wwdg.h)(0x4D783BB4)
 I (.\Library\misc.h)(0x4D783BB4)
-F (.\Hardware\bsp_led_pwm.h)(0x6976F35E)()
-F (.\Hardware\bsp_encoder.c)(0x69709CC0)(--c99 --gnu -c --cpu Cortex-M3 -g -O0 --apcs=interwork --split_sections -I "..\JKXie\程序源码\STM32Project-无注释版\2-1 STM32工程模板\Start" -I .\User -I .\Library -I .\System -I .\Hardware -I .\softwork\EightWayTrack\BSP -I .\softwork\EightWayTrack\CMSIS -I .\softwork\EightWayTrack\FWLib -I .\softwork\EightWayTrack\OBJ -I .\softwork\EightWayTrack\BSP\Motor -I .\softwork\EightWayTrack\BSP\TIMER -I .\softwork\EightWayTrack\BSP\UART -I .\softwork\STM32Core_SDK_IICXJ\Source\Drive -I .\softwork\STM32Core_SDK_IICXJ\Source\wit_c_sdk-I.\RTE\_Target_1-IF:\keil5\keil\MDK\ARM\PACK\Keil\STM32F1xx_DFP\2.3.0\Device\Include-IF:\keil5\keil\MDK\ARM\CMSIS\Include-D__UVISION_VERSION="527" -DSTM32F10X_HD -DSTM32F10X_HD -DUSE_STDPERIPH_DRIVER-o .\objects\bsp_encoder.o --omf_browse .\objects\bsp_encoder.crf --depend .\objects\bsp_encoder.d)
-I (Hardware\bsp_encoder.h)(0x69709CC0)
+F (.\Hardware\bsp_led_pwm.h)(0x697AE65F)()
+F (.\Hardware\bsp_encoder.c)(0x697C1D87)(--c99 --gnu -c --cpu Cortex-M3 -g -O0 --apcs=interwork --split_sections -I "..\JKXie\程序源码\STM32Project-无注释版\2-1 STM32工程模板\Start" -I .\User -I .\Library -I .\System -I .\Hardware -I .\softwork\EightWayTrack\BSP -I .\softwork\EightWayTrack\CMSIS -I .\softwork\EightWayTrack\FWLib -I .\softwork\EightWayTrack\OBJ -I .\softwork\EightWayTrack\BSP\Motor -I .\softwork\EightWayTrack\BSP\TIMER -I .\softwork\EightWayTrack\BSP\UART -I .\softwork\STM32Core_SDK_IICXJ\Source\Drive -I .\softwork\STM32Core_SDK_IICXJ\Source\wit_c_sdk-I.\RTE\_Target_1-IF:\keil5\keil\MDK\ARM\PACK\Keil\STM32F1xx_DFP\2.3.0\Device\Include-IF:\keil5\keil\MDK\ARM\CMSIS\Include-D__UVISION_VERSION="527" -DSTM32F10X_HD -DSTM32F10X_HD -DUSE_STDPERIPH_DRIVER-o .\objects\bsp_encoder.o --omf_browse .\objects\bsp_encoder.crf --depend .\objects\bsp_encoder.d)
+I (Hardware\bsp_encoder.h)(0x697C1D90)
 I (..\JKXie\绋嬪簭婧愮爜\STM32Project-鏃犳敞閲婄増\2-1 STM32宸ョ▼妯℃澘\Start\stm32f10x.h)(0x00000000)
 I (..\JKXie\绋嬪簭婧愮爜\STM32Project-鏃犳敞閲婄増\2-1 STM32宸ョ▼妯℃澘\Start\core_cm3.h)(0x00000000)
 I (F:\keil5\keil\MDK\ARM\ARMCC\include\stdint.h)(0x599ECD2E)
@@ -1108,18 +1108,18 @@ I (.\Library\stm32f10x_tim.h)(0x4D783BB4)
 I (.\Library\stm32f10x_usart.h)(0x4D783BB4)
 I (.\Library\stm32f10x_wwdg.h)(0x4D783BB4)
 I (.\Library\misc.h)(0x4D783BB4)
-F (.\Hardware\bsp_encoder.h)(0x69709CC0)()
+F (.\Hardware\bsp_encoder.h)(0x697C1D90)()
 F (.\Hardware\WitGyro.h)(0x695B36C6)()
-F (.\Hardware\REG.h)(0x6974C356)()
+F (.\Hardware\REG.h)(0x697AE65F)()
 F (.\Hardware\wit_c_sdk.c)(0x649BE0EA)(--c99 --gnu -c --cpu Cortex-M3 -g -O0 --apcs=interwork --split_sections -I "..\JKXie\程序源码\STM32Project-无注释版\2-1 STM32工程模板\Start" -I .\User -I .\Library -I .\System -I .\Hardware -I .\softwork\EightWayTrack\BSP -I .\softwork\EightWayTrack\CMSIS -I .\softwork\EightWayTrack\FWLib -I .\softwork\EightWayTrack\OBJ -I .\softwork\EightWayTrack\BSP\Motor -I .\softwork\EightWayTrack\BSP\TIMER -I .\softwork\EightWayTrack\BSP\UART -I .\softwork\STM32Core_SDK_IICXJ\Source\Drive -I .\softwork\STM32Core_SDK_IICXJ\Source\wit_c_sdk-I.\RTE\_Target_1-IF:\keil5\keil\MDK\ARM\PACK\Keil\STM32F1xx_DFP\2.3.0\Device\Include-IF:\keil5\keil\MDK\ARM\CMSIS\Include-D__UVISION_VERSION="527" -DSTM32F10X_HD -DSTM32F10X_HD -DUSE_STDPERIPH_DRIVER-o .\objects\wit_c_sdk.o --omf_browse .\objects\wit_c_sdk.crf --depend .\objects\wit_c_sdk.d)
 I (Hardware\wit_c_sdk.h)(0x649BE0EA)
 I (F:\keil5\keil\MDK\ARM\ARMCC\include\stdint.h)(0x599ECD2E)
 I (F:\keil5\keil\MDK\ARM\ARMCC\include\stdio.h)(0x599ECD2C)
 I (F:\keil5\keil\MDK\ARM\ARMCC\include\string.h)(0x599ECD2C)
-I (Hardware\REG.h)(0x6974C356)
+I (Hardware\REG.h)(0x697AE65F)
 F (.\Hardware\wit_c_sdk.h)(0x649BE0EA)()
-F (.\Hardware\app_control.c)(0x697783ED)(--c99 --gnu -c --cpu Cortex-M3 -g -O0 --apcs=interwork --split_sections -I "..\JKXie\程序源码\STM32Project-无注释版\2-1 STM32工程模板\Start" -I .\User -I .\Library -I .\System -I .\Hardware -I .\softwork\EightWayTrack\BSP -I .\softwork\EightWayTrack\CMSIS -I .\softwork\EightWayTrack\FWLib -I .\softwork\EightWayTrack\OBJ -I .\softwork\EightWayTrack\BSP\Motor -I .\softwork\EightWayTrack\BSP\TIMER -I .\softwork\EightWayTrack\BSP\UART -I .\softwork\STM32Core_SDK_IICXJ\Source\Drive -I .\softwork\STM32Core_SDK_IICXJ\Source\wit_c_sdk-I.\RTE\_Target_1-IF:\keil5\keil\MDK\ARM\PACK\Keil\STM32F1xx_DFP\2.3.0\Device\Include-IF:\keil5\keil\MDK\ARM\CMSIS\Include-D__UVISION_VERSION="527" -DSTM32F10X_HD -DSTM32F10X_HD -DUSE_STDPERIPH_DRIVER-o .\objects\app_control.o --omf_browse .\objects\app_control.crf --depend .\objects\app_control.d)
-I (Hardware\app_control.h)(0x6976DB55)
+F (.\Hardware\app_control.c)(0x697C7802)(--c99 --gnu -c --cpu Cortex-M3 -g -O0 --apcs=interwork --split_sections -I "..\JKXie\程序源码\STM32Project-无注释版\2-1 STM32工程模板\Start" -I .\User -I .\Library -I .\System -I .\Hardware -I .\softwork\EightWayTrack\BSP -I .\softwork\EightWayTrack\CMSIS -I .\softwork\EightWayTrack\FWLib -I .\softwork\EightWayTrack\OBJ -I .\softwork\EightWayTrack\BSP\Motor -I .\softwork\EightWayTrack\BSP\TIMER -I .\softwork\EightWayTrack\BSP\UART -I .\softwork\STM32Core_SDK_IICXJ\Source\Drive -I .\softwork\STM32Core_SDK_IICXJ\Source\wit_c_sdk-I.\RTE\_Target_1-IF:\keil5\keil\MDK\ARM\PACK\Keil\STM32F1xx_DFP\2.3.0\Device\Include-IF:\keil5\keil\MDK\ARM\CMSIS\Include-D__UVISION_VERSION="527" -DSTM32F10X_HD -DSTM32F10X_HD -DUSE_STDPERIPH_DRIVER-o .\objects\app_control.o --omf_browse .\objects\app_control.crf --depend .\objects\app_control.d)
+I (Hardware\app_control.h)(0x697C7802)
 I (..\JKXie\绋嬪簭婧愮爜\STM32Project-鏃犳敞閲婄増\2-1 STM32宸ョ▼妯℃澘\Start\stm32f10x.h)(0x00000000)
 I (..\JKXie\绋嬪簭婧愮爜\STM32Project-鏃犳敞閲婄増\2-1 STM32宸ョ▼妯℃澘\Start\core_cm3.h)(0x00000000)
 I (F:\keil5\keil\MDK\ARM\ARMCC\include\stdint.h)(0x599ECD2E)
@@ -1148,32 +1148,11 @@ I (.\Library\stm32f10x_tim.h)(0x4D783BB4)
 I (.\Library\stm32f10x_usart.h)(0x4D783BB4)
 I (.\Library\stm32f10x_wwdg.h)(0x4D783BB4)
 I (.\Library\misc.h)(0x4D783BB4)
-I (Hardware\bsp_systick.h)(0x69704333)
-I (Hardware\bsp_led_pwm.h)(0x6976F35E)
-I (Hardware\bsp_buzzer.h)(0x6976DB55)
-I (Hardware\app_motor.h)(0x69709CC0)
-I (.\User\AllHeader.h)(0x697183F1)
-I (F:\keil5\keil\MDK\ARM\ARMCC\include\stdio.h)(0x599ECD2C)
-I (F:\keil5\keil\MDK\ARM\ARMCC\include\stdbool.h)(0x599ECD2E)
 I (F:\keil5\keil\MDK\ARM\ARMCC\include\string.h)(0x599ECD2C)
-I (.\Hardware\bsp.h)(0x6949F3AE)
-I (.\Hardware\bsp_common.h)(0x6970C237)
-I (.\System\delay.h)(0x694A95CD)
-I (.\Hardware\bsp_usart.h)(0x6949F3CB)
-I (.\Hardware\app_motor.h)(0x69709CC0)
-I (.\Hardware\bsp_motor.h)(0x69709CC0)
-I (.\Hardware\bsp_encoder.h)(0x69709CC0)
-I (.\Hardware\Tracking.h)(0x69662B49)
-I (.\Hardware\bsp_timer.h)(0x6969D00A)
-I (.\Hardware\HCSR04.h)(0x6949FAB3)
-I (.\Hardware\app_usart.h)(0x6949F3AC)
-I (F:\keil5\keil\MDK\ARM\ARMCC\include\stdlib.h)(0x599ECD2C)
-I (.\Hardware\app_irtracking.h)(0x6949F3AC)
-I (Hardware\app_ui.h)(0x6976F35E)
-F (.\Hardware\app_control.h)(0x6976DB55)()
+F (.\Hardware\app_control.h)(0x697C7802)()
 F (.\Hardware\bsp_motor_iic.c)(0x694A95CD)(--c99 --gnu -c --cpu Cortex-M3 -g -O0 --apcs=interwork --split_sections -I "..\JKXie\程序源码\STM32Project-无注释版\2-1 STM32工程模板\Start" -I .\User -I .\Library -I .\System -I .\Hardware -I .\softwork\EightWayTrack\BSP -I .\softwork\EightWayTrack\CMSIS -I .\softwork\EightWayTrack\FWLib -I .\softwork\EightWayTrack\OBJ -I .\softwork\EightWayTrack\BSP\Motor -I .\softwork\EightWayTrack\BSP\TIMER -I .\softwork\EightWayTrack\BSP\UART -I .\softwork\STM32Core_SDK_IICXJ\Source\Drive -I .\softwork\STM32Core_SDK_IICXJ\Source\wit_c_sdk-I.\RTE\_Target_1-IF:\keil5\keil\MDK\ARM\PACK\Keil\STM32F1xx_DFP\2.3.0\Device\Include-IF:\keil5\keil\MDK\ARM\CMSIS\Include-D__UVISION_VERSION="527" -DSTM32F10X_HD -DSTM32F10X_HD -DUSE_STDPERIPH_DRIVER-o .\objects\bsp_motor_iic.o --omf_browse .\objects\bsp_motor_iic.crf --depend .\objects\bsp_motor_iic.d)
 I (Hardware\bsp_motor_iic.h)(0x6949F3CA)
-I (.\User\AllHeader.h)(0x697183F1)
+I (.\User\AllHeader.h)(0x697AE65F)
 I (F:\keil5\keil\MDK\ARM\ARMCC\include\stdio.h)(0x599ECD2C)
 I (F:\keil5\keil\MDK\ARM\ARMCC\include\stdbool.h)(0x599ECD2E)
 I (F:\keil5\keil\MDK\ARM\ARMCC\include\string.h)(0x599ECD2C)
@@ -1206,19 +1185,19 @@ I (.\Library\stm32f10x_usart.h)(0x4D783BB4)
 I (.\Library\stm32f10x_wwdg.h)(0x4D783BB4)
 I (.\Library\misc.h)(0x4D783BB4)
 I (.\Hardware\bsp.h)(0x6949F3AE)
-I (.\Hardware\bsp_common.h)(0x6970C237)
+I (.\Hardware\bsp_common.h)(0x697AE65F)
 I (.\System\delay.h)(0x694A95CD)
 I (.\Hardware\bsp_usart.h)(0x6949F3CB)
 I (.\Hardware\app_motor.h)(0x69709CC0)
-I (.\Hardware\bsp_motor.h)(0x69709CC0)
-I (.\Hardware\bsp_encoder.h)(0x69709CC0)
+I (.\Hardware\bsp_motor.h)(0x697B2C76)
+I (.\Hardware\bsp_encoder.h)(0x697C1D90)
 I (.\Hardware\Tracking.h)(0x69662B49)
 I (.\Hardware\bsp_timer.h)(0x6969D00A)
 I (.\Hardware\HCSR04.h)(0x6949FAB3)
 I (.\Hardware\app_usart.h)(0x6949F3AC)
 I (F:\keil5\keil\MDK\ARM\ARMCC\include\stdlib.h)(0x599ECD2C)
 I (.\Hardware\app_irtracking.h)(0x6949F3AC)
-I (.\Hardware\app_control.h)(0x6976DB55)
+I (.\Hardware\app_control.h)(0x697C7802)
 F (.\Hardware\bsp_motor_iic.h)(0x6949F3CA)()
 F (.\Hardware\bsp_timer.c)(0x6969D00A)(--c99 --gnu -c --cpu Cortex-M3 -g -O0 --apcs=interwork --split_sections -I "..\JKXie\程序源码\STM32Project-无注释版\2-1 STM32工程模板\Start" -I .\User -I .\Library -I .\System -I .\Hardware -I .\softwork\EightWayTrack\BSP -I .\softwork\EightWayTrack\CMSIS -I .\softwork\EightWayTrack\FWLib -I .\softwork\EightWayTrack\OBJ -I .\softwork\EightWayTrack\BSP\Motor -I .\softwork\EightWayTrack\BSP\TIMER -I .\softwork\EightWayTrack\BSP\UART -I .\softwork\STM32Core_SDK_IICXJ\Source\Drive -I .\softwork\STM32Core_SDK_IICXJ\Source\wit_c_sdk-I.\RTE\_Target_1-IF:\keil5\keil\MDK\ARM\PACK\Keil\STM32F1xx_DFP\2.3.0\Device\Include-IF:\keil5\keil\MDK\ARM\CMSIS\Include-D__UVISION_VERSION="527" -DSTM32F10X_HD -DSTM32F10X_HD -DUSE_STDPERIPH_DRIVER-o .\objects\bsp_timer.o --omf_browse .\objects\bsp_timer.crf --depend .\objects\bsp_timer.d)
 I (Hardware\bsp_timer.h)(0x6969D00A)
@@ -1250,24 +1229,24 @@ I (.\Library\stm32f10x_tim.h)(0x4D783BB4)
 I (.\Library\stm32f10x_usart.h)(0x4D783BB4)
 I (.\Library\stm32f10x_wwdg.h)(0x4D783BB4)
 I (.\Library\misc.h)(0x4D783BB4)
-I (.\User\AllHeader.h)(0x697183F1)
+I (.\User\AllHeader.h)(0x697AE65F)
 I (F:\keil5\keil\MDK\ARM\ARMCC\include\stdio.h)(0x599ECD2C)
 I (F:\keil5\keil\MDK\ARM\ARMCC\include\stdbool.h)(0x599ECD2E)
 I (F:\keil5\keil\MDK\ARM\ARMCC\include\string.h)(0x599ECD2C)
 I (.\Hardware\bsp.h)(0x6949F3AE)
-I (.\Hardware\bsp_common.h)(0x6970C237)
+I (.\Hardware\bsp_common.h)(0x697AE65F)
 I (.\System\delay.h)(0x694A95CD)
 I (.\Hardware\bsp_usart.h)(0x6949F3CB)
 I (.\Hardware\app_motor.h)(0x69709CC0)
-I (.\Hardware\bsp_motor.h)(0x69709CC0)
-I (.\Hardware\bsp_encoder.h)(0x69709CC0)
+I (.\Hardware\bsp_motor.h)(0x697B2C76)
+I (.\Hardware\bsp_encoder.h)(0x697C1D90)
 I (.\Hardware\Tracking.h)(0x69662B49)
 I (.\Hardware\bsp_timer.h)(0x6969D00A)
 I (.\Hardware\HCSR04.h)(0x6949FAB3)
 I (.\Hardware\app_usart.h)(0x6949F3AC)
 I (F:\keil5\keil\MDK\ARM\ARMCC\include\stdlib.h)(0x599ECD2C)
 I (.\Hardware\app_irtracking.h)(0x6949F3AC)
-I (.\Hardware\app_control.h)(0x6976DB55)
+I (.\Hardware\app_control.h)(0x697C7802)
 F (.\Hardware\bsp_timer.h)(0x6969D00A)()
 F (..\JKXie\程序源码\STM32Project-无注释版\2-1 STM32工程模板\Start\startup_stm32f10x_hd.s)(0x4D783CDE)(--cpu Cortex-M3 -g --apcs=interwork -I.\RTE\_Target_1-IF:\keil5\keil\MDK\ARM\PACK\Keil\STM32F1xx_DFP\2.3.0\Device\Include-IF:\keil5\keil\MDK\ARM\CMSIS\Include--pd "__UVISION_VERSION SETA 527" --pd "STM32F10X_HD SETA 1" --pd "STM32F10X_HD SETA 1" --pd "USE_STDPERIPH_DRIVER SETA 1"--list .\listings\startup_stm32f10x_hd.lst --xref -o .\objects\startup_stm32f10x_hd.o --depend .\objects\startup_stm32f10x_hd.d)
 F (..\JKXie\程序源码\STM32Project-无注释版\2-1 STM32工程模板\Start\core_cm3.c)(0x4C0C587E)(--c99 --gnu -c --cpu Cortex-M3 -g -O0 --apcs=interwork --split_sections -I "..\JKXie\程序源码\STM32Project-无注释版\2-1 STM32工程模板\Start" -I .\User -I .\Library -I .\System -I .\Hardware -I .\softwork\EightWayTrack\BSP -I .\softwork\EightWayTrack\CMSIS -I .\softwork\EightWayTrack\FWLib -I .\softwork\EightWayTrack\OBJ -I .\softwork\EightWayTrack\BSP\Motor -I .\softwork\EightWayTrack\BSP\TIMER -I .\softwork\EightWayTrack\BSP\UART -I .\softwork\STM32Core_SDK_IICXJ\Source\Drive -I .\softwork\STM32Core_SDK_IICXJ\Source\wit_c_sdk-I.\RTE\_Target_1-IF:\keil5\keil\MDK\ARM\PACK\Keil\STM32F1xx_DFP\2.3.0\Device\Include-IF:\keil5\keil\MDK\ARM\CMSIS\Include-D__UVISION_VERSION="527" -DSTM32F10X_HD -DSTM32F10X_HD -DUSE_STDPERIPH_DRIVER-o .\objects\core_cm3.o --omf_browse .\objects\core_cm3.crf --depend .\objects\core_cm3.d)

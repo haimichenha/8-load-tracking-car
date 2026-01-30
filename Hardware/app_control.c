@@ -1,80 +1,41 @@
 #include "app_control.h"
-#include "bsp_systick.h"
-#include "bsp_led_pwm.h"
-#include "bsp_buzzer.h"
-#include "app_motor.h"
-#include "app_ui.h"
 #include <string.h>
-#include <stdlib.h>
 
 #define CONTROL_SAMPLE_MS 20U
-#define CONTROL_HISTORY_SECONDS 6U
-#define CONTROL_HISTORY_SIZE (CONTROL_HISTORY_SECONDS * 1000U / CONTROL_SAMPLE_MS)
+#define CONTROL_ARM_COUNT 3U
 
-#define CONTROL_VX_MAX 40
-#define CONTROL_VX_MIN 6
-#define CONTROL_VX_BOOST 45
-#define CONTROL_VX_CURVE_DROP 15
-#define CONTROL_VX_SCALE_PERCENT 20
-#define CONTROL_VZ_SCALE_PERCENT 35
+/* 速度/转向输出（直接用于 Motion_Car_Control 的 Vx/Vz 标度） */
+#define CONTROL_VX_BASE 120
+#define CONTROL_VX_FAST 150
+#define CONTROL_VX_MIN  80
 
-#define CONTROL_GYRO_STRAIGHT_THRESHOLD 90.0f
-#define CONTROL_GYRO_TURN_THRESHOLD 120.0f
-#define CONTROL_GYRO_SLOPE_THRESHOLD 18.0f
+#define CONTROL_VZ_LIMIT 300
 
-#define CONTROL_TRACK_LOST_COUNT 12U
-#define CONTROL_LOST_IDLE_COUNT 200U
-#define CONTROL_FINISH_COUNT 15U
-#define CONTROL_STUCK_COUNT 15U
+/* 特征处理参数 */
+#define CONTROL_CROSS_CONFIRM_MS 40U
+#define CONTROL_CROSS_HOLD_MS    180U
 
-#define CONTROL_REPEAT_WINDOW 200U
-#define CONTROL_REPEAT_MIN_MATCH 140U
+#define CONTROL_GAP_CONFIRM_MS   40U
+#define CONTROL_GAP_HOLD_MS      120U
+#define CONTROL_TURN_HOLD_MS     260U
+#define CONTROL_LOST_STOP_MS     450U
 
-#define CONTROL_STABLE_COUNT 8U
+#define CONTROL_ACUTE_EDGE_MS    80U
 
-#define CONTROL_LIFTED_HOLD_MS 1500U
-#define CONTROL_LIFTED_GYRO_THRESHOLD 40.0f
+/* 传感器误差映射 (基于60mm传感器宽度) */
+#define LINE_ERROR_MAX 30
 
-#define CONTROL_HANDHELD_DISTANCE_CM 20.0f
-#define CONTROL_HANDHELD_VX_LIMIT 250
+/* PID 参数（误差范围 -30~+30，输出范围 -300~+300）*/
+#define PID_LINE_KP 10.0f       /* 比例系数 (原55/2≈27，保守取10) */
+#define PID_LINE_KI 0.1f        /* 积分系数 (消除静态误差) */
+#define PID_LINE_KD 3.0f        /* 微分系数 (原16/5≈3) */
+#define PID_LINE_I_LIMIT 50.0f  /* 积分限幅 */
+#define PID_LINE_OUT_LIMIT (float)CONTROL_VZ_LIMIT
 
-#define CONTROL_LIFTED_VZ_SLOW 150
-
-#define CONTROL_ARM_COUNT 5U
-#define CONTROL_PREDICT_K 0.60f
-
-#define CONTROL_OBS_DISTANCE_CM 35.0f
-#define CONTROL_OBS_EXIT_DISTANCE_CM 45.0f
-#define CONTROL_OBS_SAMPLE_COUNT 7U
-#define CONTROL_OBS_K 3U
-#define CONTROL_OBS_VX_MAX 800
-#define CONTROL_OBS_VX_MIN 200
-#define CONTROL_OBS_PRE_VX_MAX 750
-#define CONTROL_OBS_TURN 600
-#define CONTROL_OBS_NEAR_CM 18.0f
-#define CONTROL_OBS_GYRO_MAX 180.0f
-
-#define CONTROL_OBS_ENTRY_TRACK_MAX 2U
-#define CONTROL_OBS_EXIT_TRACK_COUNT 2U
-#define CONTROL_OBS_EXIT_HOLD_COUNT 5U
-#define CONTROL_OBS_INVALID_MAX 10U
-
-#define CONTROL_OBS_BOOST_STEP 60
-
-#define LINE_ERROR_MAX 14
-
-#define PID_LINE_KP 45.0f
-#define PID_LINE_KI 0.0f
-#define PID_LINE_KD 12.0f
-#define PID_LINE_I_LIMIT 120.0f
-#define PID_LINE_OUT_LIMIT 800.0f
-
-typedef struct {
-    int8_t error;
-    uint8_t trackCount;
-    uint8_t cross;
-    float gyroZ;
-} ControlSample_t;
+/* 转向策略 */
+#define TURN_INPLACE_VX 0
+#define TURN_STRONG_VZ  800
+#define TURN_MID_VZ     650
 
 typedef struct {
     float kp;
@@ -84,43 +45,33 @@ typedef struct {
     float prevError;
 } LinePid_t;
 
-static ControlSample_t s_history[CONTROL_HISTORY_SIZE];
-static uint16_t s_historyIndex = 0;
-static uint8_t s_historyFilled = 0;
-
 static LinePid_t s_linePid;
 static uint32_t s_lastUpdateMs = 0;
-static uint8_t s_lostCount = 0;
-static uint8_t s_finishCount = 0;
-static uint8_t s_stuckCount = 0;
-static uint32_t s_lastTrackChangeMs = 0;
-static uint32_t s_lastMotionMs = 0;
-static int8_t s_lastError = 0;
-static uint8_t s_lastTrackData = 0xFF;
-static int8_t s_lostDirection = 1;
-static uint8_t s_finishTriggered = 0;
-static uint8_t s_referenceSet = 0;
-static uint8_t s_refTrackData = 0xFF;
-static float s_refAnglePitch = 0.0f;
-static uint8_t s_stableCount = 0;
-static uint8_t s_armedCount = 0;
-static uint8_t s_motionArmed = 0;
-static uint32_t s_liftedStartMs = 0;
+
 static uint8_t s_obstacleMode = 0;
 static uint8_t s_obstacleActive = 0;
-static uint8_t s_obstacleExitCount = 0;
-static int16_t s_obstacleBoostVx = 0;
-static float s_obsSamples[CONTROL_OBS_SAMPLE_COUNT];
-static uint8_t s_obsIndex = 0;
-static uint8_t s_obsFilled = 0;
-static uint8_t s_obsInvalidCount = 0;
+
+static uint8_t s_motionArmed = 0;
+static uint8_t s_armedCount = 0;
 
 static ControlState_t s_state = CONTROL_STATE_IDLE;
 
-static void Control_ObstacleReset(void);
-static void Control_ObstaclePush(float distanceCm);
-static uint8_t Control_ObstacleDetect(void);
-static uint8_t Control_ObstacleDetectExit(void);
+static int8_t s_lastError = 0;
+static int8_t s_lastDir = 1;
+
+static uint32_t s_crossCandidateMs = 0;
+static uint32_t s_crossHoldUntilMs = 0;
+
+static uint32_t s_gapCandidateMs = 0;
+
+static uint32_t s_turnStartMs = 0;
+static uint32_t s_turnHoldUntilMs = 0;
+static int8_t s_turnDir = 1;
+
+static uint32_t s_edgeCandidateMs = 0;
+static int8_t s_edgeDir = 1;
+
+static ControlOutput_t s_lastOut;
 
 static float clamp_f(float value, float min, float max)
 {
@@ -129,18 +80,23 @@ static float clamp_f(float value, float min, float max)
     return value;
 }
 
-static float clamp_abs_f(float value, float maxAbs)
-{
-    if (value > maxAbs) return maxAbs;
-    if (value < -maxAbs) return -maxAbs;
-    return value;
-}
-
 static int16_t clamp_i16(int16_t value, int16_t min, int16_t max)
 {
     if (value > max) return max;
     if (value < min) return min;
     return value;
+}
+
+static int16_t abs_i16(int16_t v)
+{
+    return (v < 0) ? (int16_t)-v : v;
+}
+
+static int8_t sign_i16(int16_t v)
+{
+    if (v > 0) return 1;
+    if (v < 0) return -1;
+    return 0;
 }
 
 static void LinePid_Init(LinePid_t *pid)
@@ -185,212 +141,123 @@ static uint8_t Track_CountBits(uint8_t data)
     return count;
 }
 
-static int8_t Track_CalcError(uint8_t data)
+static int8_t Track_CalcError(uint8_t activeBits)
 {
-    static const int8_t weights[8] = {-7, -5, -3, -1, 1, 3, 5, 7};
+    /*
+     * 传感器物理布局 (从图片):
+     * - 8路传感器 X1~X8，总宽度 60mm
+     * - 间距约 8.6mm (60mm / 7个间隔)
+     * - 权重基于物理位置: X1=-30mm, X2=-21mm, ..., X8=+30mm
+     * - 归一化到 -30 ~ +30 范围
+     */
+    static const int8_t weights[8] = {-30, -21, -13, -4, 4, 13, 21, 30};
+    static int8_t lastValidError = 0;  /* 保存上次有效误差 */
     int16_t sum = 0;
     uint8_t count = 0;
 
     for (uint8_t i = 0; i < 8; i++)
     {
-        if (data & (1U << (7 - i)))
+        if (activeBits & (1U << (7 - i)))
         {
             sum += weights[i];
             count++;
         }
     }
 
-    if (count == 0)
+    /* 全白(count=0)或全黑(count=8)时保持上次误差方向 */
+    if (count == 0 || count == 8)
     {
-        return 0;
+        return lastValidError;
     }
 
-    return (int8_t)clamp_i16((int16_t)(sum / (int16_t)count), -LINE_ERROR_MAX, LINE_ERROR_MAX);
+    int8_t error = (int8_t)clamp_i16((int16_t)(sum / (int16_t)count), -LINE_ERROR_MAX, LINE_ERROR_MAX);
+    lastValidError = error;
+    return error;
 }
 
-static uint8_t Track_IsCross(uint8_t data, uint8_t count)
+static uint8_t Control_ConfirmPattern(uint8_t matched, uint32_t *startMs, uint32_t confirmMs, uint32_t nowMs)
 {
-    if (count >= 6)
+    if (matched)
     {
-        return 1;
-    }
-    if ((data == 0x3C) || (data == 0x7E))
-    {
-        return 1;
-    }
-    return 0;
-}
-
-static void ControlHistory_Push(int8_t error, uint8_t count, uint8_t cross, float gyroZ)
-{
-    s_history[s_historyIndex].error = error;
-    s_history[s_historyIndex].trackCount = count;
-    s_history[s_historyIndex].cross = cross;
-    s_history[s_historyIndex].gyroZ = gyroZ;
-
-    s_historyIndex++;
-    if (s_historyIndex >= CONTROL_HISTORY_SIZE)
-    {
-        s_historyIndex = 0;
-        s_historyFilled = 1;
-    }
-}
-
-static void ControlHistory_Analyze(uint8_t *isStraight, uint8_t *isRepeat, uint8_t gyroValid)
-{
-    uint16_t total = s_historyFilled ? CONTROL_HISTORY_SIZE : s_historyIndex;
-    float gyroSum = 0.0f;
-    uint16_t crossCount = 0;
-    uint16_t repeatMatches = 0;
-    uint16_t repeatWindow = CONTROL_REPEAT_WINDOW;
-    uint16_t lowErrorCount = 0;
-
-    if (total == 0)
-    {
-        *isStraight = 0;
-        *isRepeat = 0;
-        return;
-    }
-
-    if (repeatWindow > total)
-    {
-        repeatWindow = total;
-    }
-
-    for (uint16_t i = 0; i < total; i++)
-    {
-        uint16_t idx = (s_historyIndex + CONTROL_HISTORY_SIZE - 1 - i) % CONTROL_HISTORY_SIZE;
-        gyroSum += (s_history[idx].gyroZ >= 0.0f) ? s_history[idx].gyroZ : -s_history[idx].gyroZ;
-        if (s_history[idx].cross)
+        if (*startMs == 0)
         {
-            crossCount++;
+            *startMs = nowMs;
         }
-        int8_t err = s_history[idx].error;
-        if (err >= -1 && err <= 1)
+        if ((nowMs - *startMs) >= confirmMs)
         {
-            lowErrorCount++;
-        }
-    }
-
-    for (uint16_t i = 0; i < repeatWindow; i++)
-    {
-        uint16_t idxRecent = (s_historyIndex + CONTROL_HISTORY_SIZE - 1 - i) % CONTROL_HISTORY_SIZE;
-        uint16_t idxPast = (s_historyIndex + CONTROL_HISTORY_SIZE - 1 - i - repeatWindow) % CONTROL_HISTORY_SIZE;
-        if (s_history[idxRecent].error == s_history[idxPast].error && s_history[idxRecent].cross == s_history[idxPast].cross)
-        {
-            repeatMatches++;
-        }
-    }
-
-    if (gyroValid)
-    {
-        *isStraight = (gyroSum < CONTROL_GYRO_STRAIGHT_THRESHOLD && crossCount == 0) ? 1 : 0;
-    }
-    else
-    {
-        *isStraight = (lowErrorCount > (total * 3 / 4) && crossCount == 0) ? 1 : 0;
-    }
-    *isRepeat = (repeatMatches >= CONTROL_REPEAT_MIN_MATCH) ? 1 : 0;
-}
-
-static uint8_t Control_DetectSlope(float gyroZ, float anglePitch, float speedLeft, float speedRight)
-{
-    float speed = (speedLeft + speedRight) * 0.5f;
-    float pitchAbs = anglePitch >= 0.0f ? anglePitch : -anglePitch;
-    float pitchDelta = anglePitch - s_refAnglePitch;
-
-    if (speed < 0.0f) speed = -speed;
-
-    if ((pitchAbs > CONTROL_GYRO_SLOPE_THRESHOLD) && speed < 30.0f)
-    {
-        return 1;
-    }
-    if ((pitchDelta > CONTROL_GYRO_SLOPE_THRESHOLD) || (pitchDelta < -CONTROL_GYRO_SLOPE_THRESHOLD))
-    {
-        return 1;
-    }
-    if ((gyroZ > CONTROL_GYRO_TURN_THRESHOLD) || (gyroZ < -CONTROL_GYRO_TURN_THRESHOLD))
-    {
-        return 1;
-    }
-    return 0;
-}
-
-static uint8_t Control_CheckStuck(float speedLeft, float speedRight, uint32_t nowMs)
-{
-    float speed = (speedLeft + speedRight) * 0.5f;
-    if (speed < 0.0f) speed = -speed;
-
-    if (speed < 10.0f)
-    {
-        if ((nowMs - s_lastMotionMs) > 300U)
-        {
-            s_stuckCount++;
-            s_lastMotionMs = nowMs;
+            return 1;
         }
     }
     else
     {
-        s_lastMotionMs = nowMs;
-        s_stuckCount = 0;
-    }
-
-    if (s_stuckCount > CONTROL_STUCK_COUNT)
-    {
-        s_stuckCount = CONTROL_STUCK_COUNT;
-        return 1;
+        *startMs = 0;
     }
     return 0;
 }
 
-static uint8_t Control_CheckFinish(uint8_t trackData, uint8_t count, float gyroZ, float speedLeft, float speedRight, uint8_t gyroValid)
+static int8_t Control_DetectHardTurnDir(uint8_t raw, uint8_t activeBits, uint8_t count, int8_t error)
 {
-    float speed = (speedLeft + speedRight) * 0.5f;
-    if (speed < 0.0f) speed = -speed;
-
-    uint8_t gyroOk = 1;
-    if (gyroValid)
+    if (raw == 0x0F)
     {
-        gyroOk = ((gyroZ < 3.0f && gyroZ > -3.0f)) ? 1 : 0;
+        return -1;
+    }
+    if (raw == 0xF0)
+    {
+        return 1;
     }
 
-    if (count >= 6 && (trackData & 0x7EU) == 0x7EU && speed < 5.0f && gyroOk)
+    if (count > 0)
     {
-        if (s_finishCount < 200) s_finishCount++;
-    }
-    else
-    {
-        s_finishCount = 0;
+        uint8_t leftCount = Track_CountBits((uint8_t)(activeBits & 0xF0));
+        uint8_t rightCount = Track_CountBits((uint8_t)(activeBits & 0x0F));
+
+        if (leftCount >= 3 && rightCount == 0)
+        {
+            return -1;
+        }
+        if (rightCount >= 3 && leftCount == 0)
+        {
+            return 1;
+        }
+
+        if (count <= 2 && abs_i16(error) >= 10)
+        {
+            return (error >= 0) ? 1 : -1;
+        }
     }
 
-    return (s_finishCount >= CONTROL_FINISH_COUNT) ? 1 : 0;
+    return 0;
 }
 
 void Control_Init(void)
 {
-    memset(s_history, 0, sizeof(s_history));
-    s_historyIndex = 0;
-    s_historyFilled = 0;
+    memset(&s_lastOut, 0, sizeof(s_lastOut));
+
     s_lastUpdateMs = 0;
-    s_lostCount = 0;
-    s_finishCount = 0;
-    s_stuckCount = 0;
-    s_lastTrackChangeMs = 0;
-    s_lastMotionMs = 0;
-    s_lastError = 0;
-    s_lastTrackData = 0xFF;
-    s_lostDirection = 1;
-    s_finishTriggered = 0;
-    s_referenceSet = 0;
-    s_refTrackData = 0xFF;
-    s_refAnglePitch = 0.0f;
-    s_stableCount = 0;
-    s_armedCount = 0;
-    s_motionArmed = 0;
-    s_liftedStartMs = 0;
+
     s_obstacleMode = 0;
-    Control_ObstacleReset();
+    s_obstacleActive = 0;
+
+    s_motionArmed = 0;
+    s_armedCount = 0;
+
     s_state = CONTROL_STATE_IDLE;
+
+    s_lastError = 0;
+    s_lastDir = 1;
+
+    s_crossCandidateMs = 0;
+    s_crossHoldUntilMs = 0;
+
+    s_gapCandidateMs = 0;
+
+    s_turnStartMs = 0;
+    s_turnHoldUntilMs = 0;
+    s_turnDir = 1;
+
+    s_edgeCandidateMs = 0;
+    s_edgeDir = 1;
+
     LinePid_Init(&s_linePid);
 }
 
@@ -401,10 +268,8 @@ void Control_Reset(void)
 
 void Control_SetObstacleMode(uint8_t enable)
 {
-    s_obstacleMode = enable ? 1 : 0;
-    Control_ObstacleReset();
-    s_obstacleExitCount = 0;
-    s_obstacleBoostVx = 0;
+    s_obstacleMode = enable ? 1U : 0U;
+    s_obstacleActive = 0;
 }
 
 uint8_t Control_GetObstacleMode(void)
@@ -419,45 +284,66 @@ uint8_t Control_IsObstacleActive(void)
 
 ControlOutput_t Control_Update(uint8_t trackData, float gyroZ, float anglePitch, float distanceCm, float speedLeftMms, float speedRightMms, uint8_t gyroValid, uint32_t nowMs)
 {
-    ControlOutput_t output;
+    ControlOutput_t out;
     uint32_t deltaMs;
     float dt;
-    uint8_t count;
-    int8_t error;
-    uint8_t cross;
-    uint8_t isStraight = 0;
-    uint8_t isRepeat = 0;
-    uint8_t isSlope = 0;
-    uint8_t isLifted = 0;
-    uint8_t obsDetect = 0;
-    uint8_t obsPre = 0;
-    int16_t vx;
-    int16_t vz;
 
-    memset(&output, 0, sizeof(output));
+    uint8_t raw = trackData;
+    uint8_t activeBits = (uint8_t)(~raw);
+    uint8_t count = Track_CountBits(activeBits);
+    int8_t error = Track_CalcError(activeBits);
+
+    uint8_t crossConfirmed;
+    uint8_t gapConfirmed;
+    int8_t hardDir;
+
+    int16_t vx = 0;
+    int16_t vz = 0;
+
+    (void)gyroZ;
+    (void)anglePitch;
+    (void)distanceCm;
+    (void)speedLeftMms;
+    (void)speedRightMms;
+    (void)gyroValid;
 
     if (s_lastUpdateMs == 0)
     {
-        s_lastUpdateMs = nowMs;
+        deltaMs = CONTROL_SAMPLE_MS;
     }
-
-    deltaMs = nowMs - s_lastUpdateMs;
-    if (deltaMs < CONTROL_SAMPLE_MS)
+    else
     {
-        output.state = s_state;
-        return output;
+        deltaMs = nowMs - s_lastUpdateMs;
+        if (deltaMs == 0)
+        {
+            deltaMs = CONTROL_SAMPLE_MS;
+        }
+        if (deltaMs > 200U)
+        {
+            deltaMs = 200U;
+        }
     }
     s_lastUpdateMs = nowMs;
 
     dt = (float)deltaMs / 1000.0f;
-    trackData = (uint8_t)~trackData;
-    count = Track_CountBits(trackData);
-    error = Track_CalcError(trackData);
-    cross = Track_IsCross(trackData, count);
 
+    /* 方向与急转角候选（用于 gap 后的锐角/直角处理） */
+    if (raw != 0xFF && raw != 0x00 && count > 0)
+    {
+        if (error > 0) s_lastDir = 1;
+        else if (error < 0) s_lastDir = -1;
+
+        if (abs_i16(error) >= 10)
+        {
+            s_edgeCandidateMs = nowMs;
+            s_edgeDir = (error >= 0) ? 1 : -1;
+        }
+    }
+
+    /* 轻量 arming：看到非 gap 的循迹数据就算启动 */
     if (!s_motionArmed)
     {
-        if (count > 0)
+        if (raw != 0xFF)
         {
             if (s_armedCount < 255) s_armedCount++;
         }
@@ -472,463 +358,139 @@ ControlOutput_t Control_Update(uint8_t trackData, float gyroZ, float anglePitch,
         }
     }
 
-    if (!s_referenceSet && count > 0)
-    {
-        s_refTrackData = trackData;
-        s_refAnglePitch = anglePitch;
-        s_referenceSet = 1;
-    }
-
-    if (trackData != s_lastTrackData)
-    {
-        s_lastTrackChangeMs = nowMs;
-        s_lastTrackData = trackData;
-    }
-
-    if (count == 0)
-    {
-        if (s_lostCount < 255) s_lostCount++;
-    }
-    else
-    {
-        s_lostCount = 0;
-    }
-
-    if (count > 0)
-    {
-        if (error > 0) s_lostDirection = 1;
-        if (error < 0) s_lostDirection = -1;
-
-        if (trackData == s_refTrackData)
-        {
-            if (s_stableCount < 200) s_stableCount++;
-        }
-        else
-        {
-            s_stableCount = 0;
-        }
-    }
-    else
-    {
-        s_stableCount = 0;
-    }
-
-    if (!gyroValid)
-    {
-        gyroZ = 0.0f;
-        anglePitch = 0.0f;
-    }
-
-    ControlHistory_Push(error, count, cross, gyroZ);
-    ControlHistory_Analyze(&isStraight, &isRepeat, gyroValid);
-    isSlope = gyroValid ? Control_DetectSlope(gyroZ, anglePitch, speedLeftMms, speedRightMms) : 0;
-
-    s_obstacleActive = 0;
-    if (s_obstacleMode)
-    {
-        Control_ObstaclePush(distanceCm);
-        obsDetect = Control_ObstacleDetect();
-        if (!s_obstacleActive && count > 0 && obsDetect)
-        {
-            obsPre = 1;
-        }
-    }
-
-    /* Lifted detection: no track signal for a while with low gyro motion */
-    if (!s_obstacleMode)
-    {
-        if (count == 0)
-        {
-            if (s_liftedStartMs == 0)
-            {
-                s_liftedStartMs = nowMs;
-            }
-        }
-        else
-        {
-            s_liftedStartMs = 0;
-        }
-
-        if (s_liftedStartMs != 0 && (nowMs - s_liftedStartMs) >= CONTROL_LIFTED_HOLD_MS)
-        {
-            if (!gyroValid || (gyroZ > -CONTROL_LIFTED_GYRO_THRESHOLD && gyroZ < CONTROL_LIFTED_GYRO_THRESHOLD))
-            {
-                isLifted = 1;
-            }
-        }
-    }
-
     if (!s_motionArmed)
     {
+        memset(&out, 0, sizeof(out));
+        out.state = CONTROL_STATE_IDLE;
         s_state = CONTROL_STATE_IDLE;
+        s_lastOut = out;
+        return out;
     }
-    else if (s_obstacleMode && gyroValid)
+
+    crossConfirmed = Control_ConfirmPattern((raw == 0x00) ? 1U : 0U, &s_crossCandidateMs, CONTROL_CROSS_CONFIRM_MS, nowMs);
+    gapConfirmed = Control_ConfirmPattern((raw == 0xFF) ? 1U : 0U, &s_gapCandidateMs, CONTROL_GAP_CONFIRM_MS, nowMs);
+
+    hardDir = Control_DetectHardTurnDir(raw, activeBits, count, error);
+    if (hardDir != 0)
     {
-        if (s_obstacleActive)
+        s_turnDir = hardDir;
+        s_turnStartMs = nowMs;
+        s_turnHoldUntilMs = nowMs + CONTROL_TURN_HOLD_MS;
+        LinePid_Reset(&s_linePid);
+    }
+
+    if (crossConfirmed)
+    {
+        if (nowMs >= s_crossHoldUntilMs)
         {
-            uint8_t exitOk = 0;
-
-            if (count >= CONTROL_OBS_EXIT_TRACK_COUNT)
-            {
-                if (Control_ObstacleDetectExit())
-                {
-                    exitOk = 1;
-                }
-                else if (s_obsInvalidCount >= CONTROL_OBS_INVALID_MAX)
-                {
-                    /* Ultrasonic invalid for long: allow exit when track recovered. */
-                    exitOk = 1;
-                }
-            }
-            else if (count > 0 && obsDetect)
-            {
-                s_obstacleActive = 1;
-                s_obstacleBoostVx = 0;
-                s_obstacleExitCount = 0;
-                s_state = CONTROL_STATE_OBSTACLE;
-            }
-
-            if (exitOk)
-            {
-                if (s_obstacleExitCount < 255) s_obstacleExitCount++;
-            }
-            else
-            {
-                s_obstacleExitCount = 0;
-            }
-
-            if (s_obstacleExitCount >= CONTROL_OBS_EXIT_HOLD_COUNT)
-            {
-                s_obstacleActive = 0;
-                s_obstacleExitCount = 0;
-            }
-            else
-            {
-                s_state = CONTROL_STATE_OBSTACLE;
-            }
-        }
-
-        if (!s_obstacleActive)
-        {
-            s_obstacleExitCount = 0;
-            if (count <= CONTROL_OBS_ENTRY_TRACK_MAX && Control_ObstacleDetect())
-            {
-                s_state = CONTROL_STATE_OBSTACLE;
-                s_obstacleActive = 1;
-                s_obstacleBoostVx = 0;
-                s_obstacleExitCount = 0;
-            }
-            else if (isLifted)
-            {
-                s_state = CONTROL_STATE_LIFTED;
-            }
-            else if (Control_CheckFinish(trackData, count, gyroZ, speedLeftMms, speedRightMms, gyroValid))
-            {
-                s_state = CONTROL_STATE_FINISH;
-            }
-            else if (Control_CheckStuck(speedLeftMms, speedRightMms, nowMs))
-            {
-                s_state = CONTROL_STATE_STUCK;
-            }
-            else if (s_lostCount > CONTROL_TRACK_LOST_COUNT)
-            {
-                s_state = CONTROL_STATE_LOST_LINE;
-            }
-            else
-            {
-                s_state = CONTROL_STATE_LINE_FOLLOW;
-            }
+            s_crossHoldUntilMs = nowMs + CONTROL_CROSS_HOLD_MS;
         }
     }
-    else if (isLifted)
-    {
-        s_state = CONTROL_STATE_LIFTED;
-    }
-    else if (Control_CheckFinish(trackData, count, gyroZ, speedLeftMms, speedRightMms, gyroValid))
-    {
-        s_state = CONTROL_STATE_FINISH;
-    }
-    else if (Control_CheckStuck(speedLeftMms, speedRightMms, nowMs))
-    {
-        s_state = CONTROL_STATE_STUCK;
-    }
-    else if (s_lostCount > CONTROL_TRACK_LOST_COUNT)
-    {
-        s_state = CONTROL_STATE_LOST_LINE;
-    }
-    else
-    {
-        s_state = CONTROL_STATE_LINE_FOLLOW;
-    }
 
-    if (s_state == CONTROL_STATE_FINISH && !s_finishTriggered)
+    /* gap：短暂保持方向；锐角/长丢线进入强转向 */
+    if (gapConfirmed)
     {
-        s_finishTriggered = 1;
-        Buzzer_BeepTriple();
-        LED_StartFinishEffect();
-        UI_SetFinishMode(1);
-    }
+        uint32_t gapMs = nowMs - s_gapCandidateMs;
+        uint8_t acuteEdge = 0;
 
-    if (s_obstacleMode)
-    {
-        /* Base speed in obstacle mode: only limit while actually in obstacle region. */
-        vx = CONTROL_VX_MAX;
-        if (isStraight)
+        if (s_edgeCandidateMs != 0 && (nowMs - s_edgeCandidateMs) <= CONTROL_ACUTE_EDGE_MS)
         {
-            vx = CONTROL_VX_BOOST;
-        }
-        if (cross)
-        {
-            vx = CONTROL_VX_MAX - CONTROL_VX_CURVE_DROP;
-        }
-        if (isSlope)
-        {
-            vx = CONTROL_VX_MIN + 50;
+            acuteEdge = 1;
         }
 
-        if (s_obstacleActive)
+        if (acuteEdge || gapMs >= CONTROL_GAP_HOLD_MS)
         {
-            if (vx > CONTROL_OBS_VX_MAX) vx = CONTROL_OBS_VX_MAX;
-            if (vx < CONTROL_OBS_VX_MIN) vx = CONTROL_OBS_VX_MIN;
-            s_obstacleBoostVx = 0;
-        }
-        else if (obsPre)
-        {
-            if (vx > CONTROL_OBS_PRE_VX_MAX) vx = CONTROL_OBS_PRE_VX_MAX;
-            if (vx < CONTROL_OBS_VX_MIN) vx = CONTROL_OBS_VX_MIN;
+            int8_t dir = s_lastDir;
+            if (acuteEdge)
+            {
+                dir = s_edgeDir;
+            }
+
+            if (nowMs >= s_turnHoldUntilMs)
+            {
+                s_turnDir = (dir == 0) ? 1 : dir;
+                s_turnStartMs = nowMs;
+                s_turnHoldUntilMs = nowMs + CONTROL_TURN_HOLD_MS;
+                LinePid_Reset(&s_linePid);
+            }
         }
         else
         {
-            /* After leaving obstacle region, ramp up speed smoothly. */
-            if (s_obstacleBoostVx < CONTROL_VX_BOOST)
+            s_state = CONTROL_STATE_GAP;
+            vx = s_lastOut.vx;
+            vz = s_lastOut.vz;
+            if (vx <= 0) vx = CONTROL_VX_BASE;
+            if (vz == 0) vz = (int16_t)(s_lastDir * TURN_MID_VZ);
+        }
+
+        if (gapMs >= CONTROL_LOST_STOP_MS)
+        {
+            s_state = CONTROL_STATE_STOP;
+            vx = 0;
+            vz = 0;
+        }
+    }
+
+    if (nowMs < s_crossHoldUntilMs)
+    {
+        s_state = CONTROL_STATE_CROSS;
+        vx = CONTROL_VX_FAST;
+        vz = 0;
+        LinePid_Reset(&s_linePid);
+    }
+    else if (nowMs < s_turnHoldUntilMs)
+    {
+        s_state = CONTROL_STATE_TURN;
+        vx = TURN_INPLACE_VX;
+        vz = (int16_t)(s_turnDir * TURN_STRONG_VZ);
+
+        /* 转向中如果重新捕获到线，并且已过最小保持时间，则提前退出 */
+        if (raw != 0xFF && raw != 0x00 && count > 0)
+        {
+            if ((nowMs - s_turnStartMs) >= 80U && abs_i16(error) <= 3)
             {
-                s_obstacleBoostVx += CONTROL_OBS_BOOST_STEP;
-                if (s_obstacleBoostVx > CONTROL_VX_BOOST) s_obstacleBoostVx = CONTROL_VX_BOOST;
-            }
-
-            if (vx < s_obstacleBoostVx)
-            {
-                vx = s_obstacleBoostVx;
+                s_turnHoldUntilMs = nowMs;
             }
         }
     }
-    else
+    else if (s_state != CONTROL_STATE_GAP && s_state != CONTROL_STATE_STOP)
     {
-        vx = CONTROL_VX_MAX;
-        if (isStraight)
+        int16_t absError = abs_i16(error);
+        float pidOut;
+
+        s_state = CONTROL_STATE_LINE_FOLLOW;
+
+        vx = CONTROL_VX_BASE;
+        if (absError <= 1 && count >= 2)
         {
-            vx = CONTROL_VX_BOOST;
+            vx = CONTROL_VX_FAST;
         }
-        if (cross)
+        else if (absError >= 8)
         {
-            vx = CONTROL_VX_MAX - CONTROL_VX_CURVE_DROP;
-        }
-        if (isSlope)
-        {
-            vx = CONTROL_VX_MIN + 50;
+            vx = CONTROL_VX_MIN;
         }
 
-        if (vx < CONTROL_VX_MIN) vx = CONTROL_VX_MIN;
-    }
+        pidOut = LinePid_Update(&s_linePid, (float)error, dt);
+        vz = (int16_t)pidOut;
 
-    {
-        int8_t ePrev = s_lastError;
-        float ePred = (float)error + CONTROL_PREDICT_K * ((float)error - (float)ePrev);
-        vz = (int16_t)LinePid_Update(&s_linePid, ePred, dt);
-    }
-
-    if (count > 0)
-    {
         s_lastError = error;
     }
 
-    if (s_state == CONTROL_STATE_OBSTACLE)
-    {
-        float gyroAdj = clamp_abs_f(gyroZ, CONTROL_OBS_GYRO_MAX) / CONTROL_OBS_GYRO_MAX;
-        int16_t turn = (int16_t)(CONTROL_OBS_TURN * (1.0f - gyroAdj));
+    vx = clamp_i16(vx, 0, 1000);
+    vz = clamp_i16(vz, -1000, 1000);
 
-        if (distanceCm > 0.0f && distanceCm < CONTROL_OBS_NEAR_CM)
-        {
-            vx = CONTROL_OBS_VX_MIN;
-        }
-        else
-        {
-            vx = (vx > CONTROL_OBS_VX_MAX) ? CONTROL_OBS_VX_MAX : vx;
-        }
-        vz = (int16_t)(s_lostDirection * turn);
-        LinePid_Reset(&s_linePid);
-    }
-    else if (s_state == CONTROL_STATE_LOST_LINE)
-    {
-        vx = CONTROL_VX_MIN;
-        if (isRepeat)
-        {
-            vz = (int16_t)(s_lostDirection * 650);
-        }
-        else
-        {
-            vz = (int16_t)(s_lostDirection * 500);
-        }
-        LinePid_Reset(&s_linePid);
+    memset(&out, 0, sizeof(out));
+    out.vx = vx;
+    out.vz = vz;
+    out.trackError = error;
+    out.trackCount = count;
+    out.trackLost = (raw == 0xFF) ? 1U : 0U;
+    out.isStraight = (raw != 0xFF && raw != 0x00 && abs_i16(error) <= 1 && count >= 2) ? 1U : 0U;
+    out.isSlope = 0;
+    out.isRepeat = 0;
+    out.isLifted = 0;
+    out.state = s_state;
 
-        if (s_lostCount > CONTROL_LOST_IDLE_COUNT)
-        {
-            vx = 0;
-            vz = 0;
-            s_state = CONTROL_STATE_STOP;
-        }
-    }
-    else if (s_state == CONTROL_STATE_STUCK)
-    {
-        vx = 0;
-        vz = 0;
-    }
-    else if (s_state == CONTROL_STATE_FINISH)
-    {
-        vx = 0;
-        vz = 0;
-    }
-    else if (s_state == CONTROL_STATE_IDLE)
-    {
-        /* Not armed: keep safe */
-        vx = 0;
-        vz = 0;
-        LinePid_Reset(&s_linePid);
-    }
-    else if (s_state == CONTROL_STATE_LIFTED)
-    {
-        /* Lifted off ground: slow rotation, no forward */
-        vx = 0;
-        vz = CONTROL_LIFTED_VZ_SLOW;
-        LinePid_Reset(&s_linePid);
-    }
-
-    output.vx = clamp_i16(vx, 0, 1000);
-    output.vz = clamp_i16(vz, -1000, 1000);
-
-    output.vx = (int16_t)((output.vx * CONTROL_VX_SCALE_PERCENT) / 100);
-    output.vz = (int16_t)((output.vz * CONTROL_VZ_SCALE_PERCENT) / 100);
-
-    if (distanceCm >= 0.0f && distanceCm > CONTROL_HANDHELD_DISTANCE_CM)
-    {
-        if (output.vx > CONTROL_HANDHELD_VX_LIMIT) output.vx = CONTROL_HANDHELD_VX_LIMIT;
-    }
-    output.trackError = error;
-    output.trackCount = count;
-    output.trackLost = (count == 0) ? 1 : 0;
-    output.isStraight = isStraight;
-    output.isSlope = isSlope;
-    output.isRepeat = isRepeat;
-    output.isLifted = isLifted;
-    output.state = s_state;
-
-    return output;
-}
-
-static void Control_ObstacleReset(void)
-{
-    for (uint8_t i = 0; i < CONTROL_OBS_SAMPLE_COUNT; i++)
-    {
-        s_obsSamples[i] = -1.0f;
-    }
-    s_obsIndex = 0;
-    s_obsFilled = 0;
-    s_obsInvalidCount = 0;
-    s_obstacleActive = 0;
-}
-
-static void Control_ObstaclePush(float distanceCm)
-{
-    if (distanceCm < 0.0f)
-    {
-        if (s_obsInvalidCount < 255) s_obsInvalidCount++;
-        return;
-    }
-
-    s_obsInvalidCount = 0;
-    s_obsSamples[s_obsIndex] = distanceCm;
-    s_obsIndex++;
-    if (s_obsIndex >= CONTROL_OBS_SAMPLE_COUNT)
-    {
-        s_obsIndex = 0;
-        s_obsFilled = 1;
-    }
-}
-
-static float Control_ObstacleGetTrimmedMean(uint8_t total)
-{
-    float samples[CONTROL_OBS_SAMPLE_COUNT];
-    for (uint8_t i = 0; i < total; i++)
-    {
-        samples[i] = s_obsSamples[i];
-    }
-
-    for (uint8_t i = 0; i < total; i++)
-    {
-        for (uint8_t j = i + 1; j < total; j++)
-        {
-            if (samples[j] < samples[i])
-            {
-                float tmp = samples[i];
-                samples[i] = samples[j];
-                samples[j] = tmp;
-            }
-        }
-    }
-
-    /* trimmed mean: drop min/max if possible */
-    uint8_t start = 0;
-    uint8_t end = total;
-    if (total >= 5)
-    {
-        start = 1;
-        end = total - 1;
-    }
-
-    float sum = 0.0f;
-    uint8_t cnt = 0;
-    for (uint8_t i = start; i < end; i++)
-    {
-        sum += samples[i];
-        cnt++;
-    }
-
-    if (cnt == 0)
-    {
-        return -1.0f;
-    }
-
-    return sum / (float)cnt;
-}
-
-static uint8_t Control_ObstacleDetect(void)
-{
-    uint8_t total = s_obsFilled ? CONTROL_OBS_SAMPLE_COUNT : s_obsIndex;
-    if (total < CONTROL_OBS_K)
-    {
-        return 0;
-    }
-
-    float avg = Control_ObstacleGetTrimmedMean(total);
-    if (avg > 0.0f && avg < CONTROL_OBS_DISTANCE_CM)
-    {
-        return 1;
-    }
-    return 0;
-}
-
-static uint8_t Control_ObstacleDetectExit(void)
-{
-    uint8_t total = s_obsFilled ? CONTROL_OBS_SAMPLE_COUNT : s_obsIndex;
-    if (total < CONTROL_OBS_K)
-    {
-        return 0;
-    }
-
-    float avg = Control_ObstacleGetTrimmedMean(total);
-    if (avg > CONTROL_OBS_EXIT_DISTANCE_CM)
-    {
-        return 1;
-    }
-    return 0;
+    s_lastOut = out;
+    return out;
 }

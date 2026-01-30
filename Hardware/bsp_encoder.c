@@ -150,6 +150,11 @@ void Encoder_Update(uint32_t samplePeriodMs)
     countR = (int16_t)TIM_GetCounter(ENCODER_R_TIM);
     TIM_SetCounter(ENCODER_R_TIM, 0);
     
+    /* 应用方向反转 */
+    /* 测试结果：左轮向前是负值(需反转)，右轮向前是正值(不反转) */
+    countL = -countL;   /* 左轮反转 */
+    /* countR = countR;  右轮不反转 */
+    
     /* 更新左电机数据 */
     g_encoderL.count = countL;
     g_encoderL.totalCount += countL;

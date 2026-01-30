@@ -8,7 +8,8 @@
 /*====================================================================================*/
 
 typedef enum {
-    UI_PAGE_OVERVIEW = 0,   // 综合信息页
+    UI_PAGE_MOTOR_TEST = 0, // 电机标定页(临时，用于测量)
+    UI_PAGE_OVERVIEW,       // 综合信息页
     UI_PAGE_TRACKING,       // 循迹详情页
     UI_PAGE_GYROSCOPE,      // 陀螺仪详情页
     UI_PAGE_COUNT           // 页面总数
@@ -112,5 +113,15 @@ uint8_t UI_IsShowingStats(void);
 
 void UI_SetFinishMode(uint8_t enable);
 uint8_t UI_IsFinishMode(void);
+
+typedef struct {
+    uint8_t valid;
+    uint16_t pwmMinLeft;
+    uint16_t pwmMinRight;
+    float speedDiffMms; /* left - right, mm/s */
+} UI_MotorTest_t;
+
+void UI_SetMotorTest(uint16_t pwmMinLeft, uint16_t pwmMinRight, float speedDiffMms);
+void UI_ClearMotorTest(void);
 
 #endif /* __APP_UI_H */

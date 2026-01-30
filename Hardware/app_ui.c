@@ -18,18 +18,22 @@
 #include "bsp_led_pwm.h"
 #include <string.h>
 
+static void UI_DisplayMotorTest(void);
+
 /*====================================================================================*/
 /*                                  私有变量                                           */
 /*====================================================================================*/
 
-static UI_Page_t s_currentPage = UI_PAGE_OVERVIEW;
+static UI_Page_t s_currentPage = UI_PAGE_MOTOR_TEST;
 static uint8_t s_showStats = 0;         // 是否显示统计页 (长按触发)
 static uint8_t s_pageChanged = 1;       // 页面切换标志，用于清屏
 static uint8_t s_finishMode = 0;        // 终点锁定显示
 static uint8_t s_obstacleMode = 0;      // 避障模式显示标志
 static uint8_t s_obstacleHint = 0;      // 避障提示覆盖层
-static uint16_t s_obstacleHintMs = 0;   // 避障提示计时
+static uint8_t s_obstacleHintMs = 0;   // 避障提示计时
 static float s_ultrasonicCm = 0.0f;     // 超声波距离(cm)
+
+static UI_MotorTest_t s_motorTest;
 
 /*====================================================================================*/
 /*                                  全局变量                                           */
@@ -46,7 +50,7 @@ TrackingAnalysis_t g_trackAnalysis;
   */
 void UI_Init(void)
 {
-    s_currentPage = UI_PAGE_OVERVIEW;
+    s_currentPage = UI_PAGE_MOTOR_TEST;
     s_showStats = 0;
     s_pageChanged = 1;  // 初始化时需要清屏
     s_finishMode = 0;
@@ -54,7 +58,9 @@ void UI_Init(void)
     s_obstacleHint = 0;
     s_obstacleHintMs = 0;
     s_ultrasonicCm = 0.0f;
-    
+
+    memset(&s_motorTest, 0, sizeof(s_motorTest));
+
     /* 清零循迹分析数据 */
     memset(&g_trackAnalysis, 0, sizeof(g_trackAnalysis));
 }
@@ -84,7 +90,12 @@ void UI_NextPage(void)
     /* 切换到下一页 */
     if (s_obstacleMode)
     {
-        if (s_currentPage == UI_PAGE_OVERVIEW)
+        /* 避障模式下：在 MotorTest/Overview/Gyro/Tracking 之间循环 */
+        if (s_currentPage == UI_PAGE_MOTOR_TEST)
+        {
+            s_currentPage = UI_PAGE_OVERVIEW;
+        }
+        else if (s_currentPage == UI_PAGE_OVERVIEW)
         {
             s_currentPage = UI_PAGE_GYROSCOPE;
         }
@@ -94,7 +105,7 @@ void UI_NextPage(void)
         }
         else
         {
-            s_currentPage = UI_PAGE_OVERVIEW;
+            s_currentPage = UI_PAGE_MOTOR_TEST;
         }
     }
     else
@@ -290,20 +301,24 @@ void UI_Display(uint8_t trackData, uint8_t trackOK)
     /* 根据当前页面显示 */
     switch (s_currentPage)
     {
+        case UI_PAGE_MOTOR_TEST:
+            UI_DisplayMotorTest();
+            break;
+
         case UI_PAGE_OVERVIEW:
             UI_DisplayOverview(trackData, trackOK);
             break;
-            
+
         case UI_PAGE_TRACKING:
             UI_DisplayTracking(trackData, trackOK);
             break;
-            
+
         case UI_PAGE_GYROSCOPE:
             UI_DisplayGyroscope();
             break;
-            
+
         default:
-            UI_DisplayOverview(trackData, trackOK);
+            UI_DisplayMotorTest();
             break;
     }
 }
@@ -631,4 +646,47 @@ void UI_SetFinishMode(uint8_t enable)
 uint8_t UI_IsFinishMode(void)
 {
     return s_finishMode;
+}
+
+void UI_SetMotorTest(uint16_t pwmMinLeft, uint16_t pwmMinRight, float speedDiffMms)
+{
+    s_motorTest.valid = 1;
+    s_motorTest.pwmMinLeft = pwmMinLeft;
+    s_motorTest.pwmMinRight = pwmMinRight;
+    s_motorTest.speedDiffMms = speedDiffMms;
+}
+
+void UI_ClearMotorTest(void)
+{
+    memset(&s_motorTest, 0, sizeof(s_motorTest));
+    s_pageChanged = 1;
+}
+
+static void UI_DisplayMotorTest(void)
+{
+    uint16_t lPct;
+    uint16_t rPct;
+    int32_t diff;
+
+    /* 基于当前电机PWM周期 (TIM5: 3600=100%) */
+    lPct = (uint16_t)((uint32_t)s_motorTest.pwmMinLeft * 100U / 3600U);
+    rPct = (uint16_t)((uint32_t)s_motorTest.pwmMinRight * 100U / 3600U);
+
+    diff = (int32_t)(s_motorTest.speedDiffMms);
+
+    OLED_ShowString(1, 1, "== MOTOR TEST ==");
+
+    OLED_ShowString(2, 1, "Lmin ");
+    OLED_ShowNum(2, 6, lPct, 2);
+    OLED_ShowString(2, 8, "%:");
+    OLED_ShowNum(2, 11, s_motorTest.pwmMinLeft, 4);
+
+    OLED_ShowString(3, 1, "Rmin ");
+    OLED_ShowNum(3, 6, rPct, 2);
+    OLED_ShowString(3, 8, "%:");
+    OLED_ShowNum(3, 11, s_motorTest.pwmMinRight, 4);
+
+    OLED_ShowString(4, 1, "dV:");
+    OLED_ShowSignedNum(4, 4, diff, 4);
+    OLED_ShowString(4, 8, "mm/s   ");
 }
