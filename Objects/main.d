@@ -62,3 +62,4 @@
 .\objects\main.o: .\Hardware\bsp_buzzer.h
 .\objects\main.o: .\Hardware\app_ui.h
 .\objects\main.o: .\Hardware\app_stats.h
+.\objects\main.o: .\Hardware\bsp_ir_gpio.h

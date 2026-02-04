@@ -32,6 +32,7 @@
 ".\objects\app_control.o"
 ".\objects\bsp_motor_iic.o"
 ".\objects\bsp_timer.o"
+".\objects\bsp_ir_gpio.o"
 ".\objects\startup_stm32f10x_hd.o"
 ".\objects\core_cm3.o"
 ".\objects\system_stm32f10x.o"

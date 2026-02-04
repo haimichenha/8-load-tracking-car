@@ -747,6 +747,16 @@
               <FileType>5</FileType>
               <FilePath>.\Hardware\bsp_timer.h</FilePath>
             </File>
+            <File>
+              <FileName>bsp_ir_gpio.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>.\Hardware\bsp_ir_gpio.c</FilePath>
+            </File>
+            <File>
+              <FileName>bsp_ir_gpio.h</FileName>
+              <FileType>5</FileType>
+              <FilePath>.\Hardware\bsp_ir_gpio.h</FilePath>
+            </File>
           </Files>
         </Group>
         <Group>

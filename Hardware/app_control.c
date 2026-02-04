@@ -1,41 +1,51 @@
 #include "app_control.h"
 #include <string.h>
 
-#define CONTROL_SAMPLE_MS 20U
+#define CONTROL_SAMPLE_MS 10U   /* 控制周期 10ms */
 #define CONTROL_ARM_COUNT 3U
 
-/* 速度/转向输出（直接用于 Motion_Car_Control 的 Vx/Vz 标度） */
-#define CONTROL_VX_BASE 120
-#define CONTROL_VX_FAST 150
-#define CONTROL_VX_MIN  80
+/* 速度/转向输出 - 保守设置，先跑稳 */
+#define CONTROL_VX_BASE 250     /* 基础速度 - 先用低速 */
+#define CONTROL_VX_FAST 280
+#define CONTROL_VX_MIN  120
 
-#define CONTROL_VZ_LIMIT 300
+#define CONTROL_VZ_LIMIT 400    /* 转向限幅 - 降低避免过冲 */
+
+/* gap/恢复策略（只影响丢线->重捕线瞬态，不拖慢正常循迹） */
+#define CONTROL_RECOVER_CONFIRM_MS 25U  /* 重捕线确认时间 */
+#define CONTROL_RECOVER_HOLD_MS    70U  /* 恢复窗口：限制回中斜率 */
+#define CONTROL_RECOVER_MAX_VZ_STEP 35  /* 每周期允许的最大vz变化量 */
 
 /* 特征处理参数 */
 #define CONTROL_CROSS_CONFIRM_MS 40U
 #define CONTROL_CROSS_HOLD_MS    180U
 
-#define CONTROL_GAP_CONFIRM_MS   40U
-#define CONTROL_GAP_HOLD_MS      120U
-#define CONTROL_TURN_HOLD_MS     260U
-#define CONTROL_LOST_STOP_MS     450U
+#define CONTROL_GAP_CONFIRM_MS   100U    /* 丢线确认时间加长 */
+#define CONTROL_GAP_HOLD_MS      150U
+#define CONTROL_TURN_HOLD_MS     300U
+#define CONTROL_LOST_STOP_MS     900U   /* 丢线停止时间加长 */
 
 #define CONTROL_ACUTE_EDGE_MS    80U
 
 /* 传感器误差映射 (基于60mm传感器宽度) */
 #define LINE_ERROR_MAX 30
 
-/* PID 参数（误差范围 -30~+30，输出范围 -300~+300）*/
-#define PID_LINE_KP 10.0f       /* 比例系数 (原55/2≈27，保守取10) */
-#define PID_LINE_KI 0.1f        /* 积分系数 (消除静态误差) */
-#define PID_LINE_KD 3.0f        /* 微分系数 (原16/5≈3) */
+/* PID 参数 - 大幅降低，细细补偿 */
+/* 
+ * 误差范围 -30~+30
+ * 目标：误差=30 时，输出约 150-200 (轻微转向)
+ * Kp = 150/30 ≈ 5
+ */
+#define PID_LINE_KP 3.0f        /* 比例系数 - 大幅降低 */
+#define PID_LINE_KI 0.01f        /* 积分系数 - 关闭 */
+#define PID_LINE_KD 2.0f        /* 微分系数 - 降低 */
 #define PID_LINE_I_LIMIT 50.0f  /* 积分限幅 */
 #define PID_LINE_OUT_LIMIT (float)CONTROL_VZ_LIMIT
 
-/* 转向策略 */
+/* 转向策略 - 降低转向力度 */
 #define TURN_INPLACE_VX 0
-#define TURN_STRONG_VZ  800
-#define TURN_MID_VZ     650
+#define TURN_STRONG_VZ  300     /* 强转向降低 */
+#define TURN_MID_VZ     200
 
 typedef struct {
     float kp;
@@ -63,6 +73,9 @@ static uint32_t s_crossCandidateMs = 0;
 static uint32_t s_crossHoldUntilMs = 0;
 
 static uint32_t s_gapCandidateMs = 0;
+
+static uint32_t s_recoverCandidateMs = 0;
+static uint32_t s_recoverHoldUntilMs = 0;
 
 static uint32_t s_turnStartMs = 0;
 static uint32_t s_turnHoldUntilMs = 0;
@@ -195,6 +208,15 @@ static uint8_t Control_ConfirmPattern(uint8_t matched, uint32_t *startMs, uint32
     return 0;
 }
 
+static int16_t Control_LimitStepI16(int16_t target, int16_t current, int16_t maxStep)
+{
+    int16_t diff = (int16_t)(target - current);
+
+    if (diff > maxStep) return (int16_t)(current + maxStep);
+    if (diff < -maxStep) return (int16_t)(current - maxStep);
+    return target;
+}
+
 static int8_t Control_DetectHardTurnDir(uint8_t raw, uint8_t activeBits, uint8_t count, int8_t error)
 {
     if (raw == 0x0F)
@@ -250,6 +272,9 @@ void Control_Init(void)
     s_crossHoldUntilMs = 0;
 
     s_gapCandidateMs = 0;
+
+    s_recoverCandidateMs = 0;
+    s_recoverHoldUntilMs = 0;
 
     s_turnStartMs = 0;
     s_turnHoldUntilMs = 0;
@@ -370,6 +395,26 @@ ControlOutput_t Control_Update(uint8_t trackData, float gyroZ, float anglePitch,
     crossConfirmed = Control_ConfirmPattern((raw == 0x00) ? 1U : 0U, &s_crossCandidateMs, CONTROL_CROSS_CONFIRM_MS, nowMs);
     gapConfirmed = Control_ConfirmPattern((raw == 0xFF) ? 1U : 0U, &s_gapCandidateMs, CONTROL_GAP_CONFIRM_MS, nowMs);
 
+    /* 丢线后的重捕线确认：只要不是gap且count>0即算捕线候选 */
+    if (raw != 0xFF && raw != 0x00 && count > 0)
+    {
+        if (s_recoverCandidateMs == 0)
+        {
+            s_recoverCandidateMs = nowMs;
+        }
+        if ((nowMs - s_recoverCandidateMs) >= CONTROL_RECOVER_CONFIRM_MS)
+        {
+            if (nowMs >= s_recoverHoldUntilMs)
+            {
+                s_recoverHoldUntilMs = nowMs + CONTROL_RECOVER_HOLD_MS;
+            }
+        }
+    }
+    else
+    {
+        s_recoverCandidateMs = 0;
+    }
+
     hardDir = Control_DetectHardTurnDir(raw, activeBits, count, error);
     if (hardDir != 0)
     {
@@ -474,6 +519,18 @@ ControlOutput_t Control_Update(uint8_t trackData, float gyroZ, float anglePitch,
         vz = (int16_t)pidOut;
 
         s_lastError = error;
+    }
+
+    /* 重捕线恢复窗口：限制“回中速度”，但不限制“加大转向速度” */
+    if (nowMs < s_recoverHoldUntilMs)
+    {
+        int16_t prevVz = s_lastOut.vz;
+        int16_t targetVz = vz;
+
+        if (abs_i16(targetVz) < abs_i16(prevVz))
+        {
+            vz = Control_LimitStepI16(targetVz, prevVz, CONTROL_RECOVER_MAX_VZ_STEP);
+        }
     }
 
     vx = clamp_i16(vx, 0, 1000);

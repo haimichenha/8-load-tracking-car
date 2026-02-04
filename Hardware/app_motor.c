@@ -3,43 +3,29 @@
 #include "bsp_systick.h"
 
 /*====================================================================================*/
-/*                              速度环参数（根据实测调整）                              */
+/*                              速度环参数（循迹优化版）                               */
 /*====================================================================================*/
 
 #define MOTOR_SPEED_LOOP_ENABLE 1
 
-/* 电机速度参数 - 根据测试结果 */
-/* 80% PWM 实测: L=1676, R=1751 mm/s → 反推100%: L≈2095, R≈2189 mm/s */
-/* 取保守值 2100 mm/s 作为最大速度 */
+/* 电机速度参数 */
 #define MOTOR_SPEED_MAX_MMS     2100.0f     /* 最大速度 (mm/s) */
 #define MOTOR_DEADZONE_L_PCT    4           /* 左轮死区 (%) */
 #define MOTOR_DEADZONE_R_PCT    5           /* 右轮死区 (%) */
 
-/* 速度分档阈值 (mm/s) */
-#define MOTOR_SPEED_LOW_THRESH   500.0f     /* 低速区：<500 mm/s，严格限制 */
-#define MOTOR_SPEED_MID_THRESH   1000.0f    /* 中速区：500-1000 mm/s，中等限制 */
-                                            /* 高速区：>1000 mm/s，快速响应 */
-
-/* 速度环 PID 参数 (单位: error=mm/s, output=%PWM) */
-#define MOTOR_PID_KP            0.015f      /* 比例系数 - 减小避免超调 */
-#define MOTOR_PID_KI            0.008f      /* 积分系数 - 减小避免震荡 */
-#define MOTOR_PID_KD            0.0f
-#define MOTOR_PID_INTEGRAL_LIMIT 1000.0f    /* mm/s*s */
-#define MOTOR_PID_OUTPUT_LIMIT  25.0f       /* 输出限幅 (%) */
+/* 速度环 PID 参数 - 简化版，提高响应 */
+#define MOTOR_PID_KP            0.020f      /* 比例系数 - 稍微增大 */
+#define MOTOR_PID_KI            0.005f      /* 积分系数 - 减小 */
+#define MOTOR_PID_KD            0.002f      /* 微分系数 - 加入抑制震荡 */
+#define MOTOR_PID_INTEGRAL_LIMIT 800.0f     /* 积分限幅 */
+#define MOTOR_PID_OUTPUT_LIMIT  30.0f       /* 输出限幅 (%) - 放宽 */
 #define MOTOR_PID_MAX_DT_MS     200U        /* 最大时间间隔 */
 
-/* PWM 变化率限制：升速和降速分开控制 */
-/* 升速（加速）：慢一点，避免超调 */
-#define MOTOR_PWM_SLEW_UP_LOW   1.5f        /* 低速区升速 */
-#define MOTOR_PWM_SLEW_UP_MID   2.25f       /* 中速区升速 */
-#define MOTOR_PWM_SLEW_UP_HIGH  5.0f        /* 高速区升速 */
-/* 降速（减速）：快一点，快速响应 */
-#define MOTOR_PWM_SLEW_DN_LOW   2.25f        /* 低速区降速 */
-#define MOTOR_PWM_SLEW_DN_MID   8.0f        /* 中速区降速 */
-#define MOTOR_PWM_SLEW_DN_HIGH  10.0f        /* 高速区降速 */
+/* PWM 变化率限制 - 简化为单一值，提高响应 */
+#define MOTOR_PWM_SLEW_RATE     8.0f        /* 统一变化率 - 放宽限制 */
 
-/* 速度滤波系数 (0-1, 越小滤波越强) */
-#define MOTOR_SPEED_FILTER_ALPHA 0.5f       /* 加强滤波 */
+/* 速度滤波系数 */
+#define MOTOR_SPEED_FILTER_ALPHA 0.5f       /* 减弱滤波，提高响应 */
 
 typedef struct {
     float kp;
@@ -155,62 +141,25 @@ static int16_t Motor_CalcSpeedOutput(float targetMms, float actualMms, MotorPid_
     pwm = basePwm + correction;
     pwm = Motor_ClampFloat(pwm, -100.0f, 100.0f);
 
-    /* PWM 变化率限制：根据目标速度分三档 */
+    /* PWM 变化率限制 - 简化版，统一限制 */
     deltaPwm = pwm - lastPwm;
-    absTarget = (targetMms > 0) ? targetMms : -targetMms;
     
-    /* 
-     * 三档变化率策略 + 升降速非对称：
-     * 升速（加速）：慢一点，避免超调
-     * 降速（减速）：快一点，快速响应
-     */
-    {
-        float slewRateUp, slewRateDn, slewRate;
-        int isSpeedUp;
-        
-        /* 判断是升速还是降速：PWM 绝对值增大 = 升速 */
-        if (pwm > 0) {
-            isSpeedUp = (deltaPwm > 0);
-        } else {
-            isSpeedUp = (deltaPwm < 0);
-        }
-        
-        /* 根据目标速度选择档位 */
-        if (absTarget < MOTOR_SPEED_LOW_THRESH)
-        {
-            slewRateUp = MOTOR_PWM_SLEW_UP_LOW;
-            slewRateDn = MOTOR_PWM_SLEW_DN_LOW;
-        }
-        else if (absTarget < MOTOR_SPEED_MID_THRESH)
-        {
-            slewRateUp = MOTOR_PWM_SLEW_UP_MID;
-            slewRateDn = MOTOR_PWM_SLEW_DN_MID;
-        }
-        else
-        {
-            slewRateUp = MOTOR_PWM_SLEW_UP_HIGH;
-            slewRateDn = MOTOR_PWM_SLEW_DN_HIGH;
-        }
-        
-        /* 选择升速或降速的变化率 */
-        slewRate = isSpeedUp ? slewRateUp : slewRateDn;
-        
-        /* 应用变化率限制 */
-        if (deltaPwm > slewRate) deltaPwm = slewRate;
-        else if (deltaPwm < -slewRate) deltaPwm = -slewRate;
-        
-        pwm = lastPwm + deltaPwm;
-    }
+    /* 简单的变化率限制，提高响应速度 */
+    if (deltaPwm > MOTOR_PWM_SLEW_RATE) deltaPwm = MOTOR_PWM_SLEW_RATE;
+    else if (deltaPwm < -MOTOR_PWM_SLEW_RATE) deltaPwm = -MOTOR_PWM_SLEW_RATE;
+    
+    pwm = lastPwm + deltaPwm;
     
     *pLastPwm = pwm;  /* 保存本次 PWM */
 
     /* 死区补偿 */
     deadzone = isLeft ? MOTOR_DEADZONE_L_PCT : MOTOR_DEADZONE_R_PCT;
     
-    /* 低速时增加死区余量 */
-    if (absTarget < MOTOR_SPEED_LOW_THRESH)
+    /* 低速时增加死区余量，帮助快速脱离死区 */
+    absTarget = (targetMms > 0) ? targetMms : -targetMms;
+    if (absTarget < 500.0f)
     {
-        deadzone += 2;
+        deadzone += 3;  /* 低速时多补偿一点 */
     }
     
     /* 最小 PWM 保护 */

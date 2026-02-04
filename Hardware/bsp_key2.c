@@ -44,7 +44,7 @@ void Key2_Init(void)
     s_longPressTriggered = 0;
 }
 
-/**
+/**	
   * @brief  读取按键原始状态
   */
 static uint8_t Key2_ReadRaw(void)
