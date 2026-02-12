@@ -789,7 +789,7 @@ int main(void)
  * 4. 找到临界点后，加 Kd 抑制摆动
  */
 #define TRACK_KP            8.00f        /* 循迹P - 回退到验证过的值，先修内环 */
-#define TRACK_KD            0.80f        /* 循迹D - 回退到验证过的值 */
+#define TRACK_KD            1.20f        /* 循迹D - 提高阻尼，抑制-3/-7振荡 */
 
 /*==================== 速度设定 ====================*/
 /* 注意：PWM=30 对应约 650 mm/s
@@ -1386,43 +1386,49 @@ int main(void)
                     float dErr;
 
                     /* 非线性Kp：误差越大，Kp越大
-                     * 基础Kp=8已经很强，非线性倍率要保守
-                     * 小误差(0~3)：1.0x — 直线稳定
-                     * 中误差(3~8)：1.05~1.8x — 浅弯需要更强响应
-                     * 大误差(8~25)：1.8~2.8x — 急弯猛转
-                     * T5数据: err=-3时turnOut=-24差速48太小，几乎直行
-                     * T2数据: err=+7时turnOut=89差速178不够跟急弯
+                     * 小误差(0~1)：1.0x — 直线稳定
+                     * 中误差(1~8)：1.05~2.21x — 更早介入hold住小弯
+                     *   err=3: 1.38x turnOut=33 (+38%)
+                     *   err=5: 1.71x turnOut=68
+                     *   err=7: 2.04x turnOut=114
+                     * 大误差(8~25)：2.2~3.5x — 大弯快速摆车身
+                     *   err=10: 2.36x turnOut=189
+                     *   err=12: 2.52x turnOut=242
                      */
                     if (absErr > 8.0f) {
-                        dynamicKp = TRACK_KP * (1.8f + (absErr - 8.0f) * 0.06f);
-                        if (dynamicKp > TRACK_KP * 2.8f) dynamicKp = TRACK_KP * 2.8f;
-                    } else if (absErr > 3.0f) {
-                        dynamicKp = TRACK_KP * (1.05f + (absErr - 3.0f) * 0.15f);
+                        dynamicKp = TRACK_KP * (2.2f + (absErr - 8.0f) * 0.08f);
+                        if (dynamicKp > TRACK_KP * 3.5f) dynamicKp = TRACK_KP * 3.5f;
+                    } else if (absErr > 1.0f) {
+                        dynamicKp = TRACK_KP * (1.05f + (absErr - 1.0f) * 0.165f);
                     }
                     logKpScale = dynamicKp / TRACK_KP;
 
                     /* 弯道自动减速：误差越大速度越低
-                     * 弯道3弯峰err=-7~-10时速度280~256仍太快，跟不住弯峰
-                     * 加大减速斜率：0.025→0.035，大误差区降速更猛
-                     * absErr=0: 100% 速度 (320)
-                     * absErr=5: ~89% (286)
-                     * absErr=7: ~82% (264)  ← 之前是280，现在更低
-                     * absErr=10: ~72% (230)  ← 之前是256
-                     * absErr=15: ~54% (174)
-                     * absErr=25: ~20% → clamp 25% (80)
+                     * absErr=0: 100% (320)
+                     * absErr=3: 96% (306)
+                     * absErr=5: 87% (277)
+                     * absErr=7: 78% (248)
+                     * absErr=10: 64% (205)
+                     * absErr=12: 55% (176)
+                     * absErr=25: clamp 20% (64)
                      */
                     if (absErr > 2.0f) {
-                        float speedFactor = 1.0f - (absErr - 2.0f) * 0.035f;
-                        if (speedFactor < 0.25f) speedFactor = 0.25f;
+                        float speedFactor = 1.0f - (absErr - 2.0f) * 0.045f;
+                        if (speedFactor < 0.20f) speedFactor = 0.20f;
                         dynamicBaseSpeed *= speedFactor;
                     }
 
-                    /* 丢线时额外降速 + 限制转向 */
+                    /* 丢线时：分阶段搜索（降低初始速度，减少角动量） */
                     if (lostLineFrames > 0) {
-                        /* 丢线搜索策略：温柔搜索，避免冲过线 */
-                        dynamicBaseSpeed = 160.0f;  /* 固定搜索速度 */
-                        if (lostLineFrames > 50) {
-                            dynamicBaseSpeed = 130.0f; /* 长时间丢线稍降 */
+                        if (lostLineFrames <= 15) {
+                            /* 刚丢线：适中速度搜索 */
+                            dynamicBaseSpeed = 160.0f;
+                        } else if (lostLineFrames <= 50) {
+                            /* 中期：持续搜索 */
+                            dynamicBaseSpeed = 140.0f;
+                        } else {
+                            /* 长时间丢线：低速搜索 */
+                            dynamicBaseSpeed = 110.0f;
                         }
                         logFlags |= 0x10U; /* bit4: 丢线降速 */
                     }
@@ -1521,38 +1527,48 @@ int main(void)
 #endif  /* SPEED_LOOP_TUNING */
         }
         
-        /* OLED 刷新 500ms（降低频率，减少对控制的干扰）*/
-        if ((nowMs - lastOledMs) >= 1200)
+        /* OLED 分帧刷新：每次只刷 1 行，阻塞约 120ms 而非 540ms
+         * 4 行轮流刷，间隔 300ms，完整刷一轮 = 1200ms
+         * 关键改进：消除 540ms 控制盲区！
+         */
         {
-            lastOledMs = nowMs;
-#if SPEED_LOOP_TUNING
-            /* 速度环调试显示 */
-            sprintf(buf, "Tgt:%3.0f mm/s", TEST_TARGET_SPEED);
-            OLED_ShowString(1, 1, buf);
-            sprintf(buf, "L:%3.0f R:%3.0f", s_speedL_f, s_speedR_f);
-            OLED_ShowString(2, 1, buf);
-            sprintf(buf, "PWM L%2.0f R%2.0f", s_pwmL, s_pwmR);
-            OLED_ShowString(3, 1, buf);
-            sprintf(buf, "Kp%.2f Ki%.3f", SPEED_KP, SPEED_KI);
-            OLED_ShowString(4, 1, buf);
-#else
-            sprintf(buf, "E:%+3d Spd%3.0f", s_lastErr, (s_speedL_f + s_speedR_f) / 2);
-            OLED_ShowString(1, 1, buf);
-            sprintf(buf, "Tgt%3.0f/%3.0f", targetL, targetR);
-            OLED_ShowString(2, 1, buf);
-            sprintf(buf, "PWM%2.0f/%2.0f", s_pwmL, s_pwmR);
-            OLED_ShowString(3, 1, buf);
+            static uint8_t oledLine = 0;
+            if ((nowMs - lastOledMs) >= 300)
             {
-                uint8_t active = (uint8_t)(~ir_raw);
-                char sensorStr[9];
-                int i;
-                for (i = 0; i < 8; i++) {
-                    sensorStr[i] = (active & (1 << (7-i))) ? '*' : '-';
+                lastOledMs = nowMs;
+#if SPEED_LOOP_TUNING
+                switch (oledLine) {
+                case 0: sprintf(buf, "Tgt:%3.0f mm/s", TEST_TARGET_SPEED);
+                        OLED_ShowString(1, 1, buf); break;
+                case 1: sprintf(buf, "L:%3.0f R:%3.0f", s_speedL_f, s_speedR_f);
+                        OLED_ShowString(2, 1, buf); break;
+                case 2: sprintf(buf, "PWM L%2.0f R%2.0f", s_pwmL, s_pwmR);
+                        OLED_ShowString(3, 1, buf); break;
+                case 3: sprintf(buf, "Kp%.2f Ki%.3f", SPEED_KP, SPEED_KI);
+                        OLED_ShowString(4, 1, buf); break;
                 }
-                sensorStr[8] = '\0';
-                OLED_ShowString(4, 1, sensorStr);
-            }
+#else
+                switch (oledLine) {
+                case 0: sprintf(buf, "E:%+3d Spd%3.0f", s_lastErr, (s_speedL_f + s_speedR_f) / 2);
+                        OLED_ShowString(1, 1, buf); break;
+                case 1: sprintf(buf, "Tgt%3.0f/%3.0f", targetL, targetR);
+                        OLED_ShowString(2, 1, buf); break;
+                case 2: sprintf(buf, "PWM%2.0f/%2.0f", s_pwmL, s_pwmR);
+                        OLED_ShowString(3, 1, buf); break;
+                case 3: {
+                        uint8_t active = (uint8_t)(~ir_raw);
+                        char sensorStr[9];
+                        int si;
+                        for (si = 0; si < 8; si++) {
+                            sensorStr[si] = (active & (1 << (7-si))) ? '*' : '-';
+                        }
+                        sensorStr[8] = '\0';
+                        OLED_ShowString(4, 1, sensorStr);
+                    } break;
+                }
 #endif  /* SPEED_LOOP_TUNING */
+                oledLine = (oledLine + 1) & 3;
+            }
         }
     }
 }
