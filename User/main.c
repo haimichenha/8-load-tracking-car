@@ -764,16 +764,16 @@ int main(void)
 #define DEBUG_OPEN_LOOP     0           /* 1=开环测试(直接给PWM), 0=闭环PI */
 #define DEBUG_FIXED_PWM     30.0f       /* 开环测试时的固定PWM值 */
 
-/*==================== 速度环参数（内环）- 已调好！ ====================*/
+/*==================== 速度环参数（内环）====================*/
 /* MG310 电机动力很强，PWM=30 就能跑 650mm/s
- * 目标500，实际234，误差266，需要增大Kp
- * ✅ 最终参数：Kp=0.18, Ki=0.12
- * ✅ 效果：目标500mm/s，实际496~503mm/s，误差<1%，抗扰动良好
+ * Kp=0.18/Ki=0.12 在500mm/s时OK但320mm/s时PWM振荡(0~33跳动)
+ * Kp=0.12/Ki=0.04 不振荡但太慢：目标364实际220，差速建立不起来
+ * 折中：Kp=0.15/Ki=0.06，兼顾平滑与响应
  */
-#define SPEED_KP            0.18f       /* 速度P - 极限值，再高会间断 */
-#define SPEED_KI            0.12f       /* 速度I - 消除静差 */
+#define SPEED_KP            0.15f       /* 速度P - 折中值 */
+#define SPEED_KI            0.06f       /* 速度I - 折中值，比0.12低一半 */
 #define SPEED_KD            0.0f        /* 速度D - 不需要 */
-#define INTEGRAL_MAX        200.0f      /* 积分限幅 */
+#define INTEGRAL_MAX        150.0f      /* 积分限幅 - 适度收紧 */
 
 /*==================== 速度环调试目标速度 ====================*/
 /* 注意：PWM=30 对应约 650 mm/s，所以目标速度要合理设置
@@ -788,16 +788,16 @@ int main(void)
  * 3. Kp 太大：左右摆动（蛇形）
  * 4. 找到临界点后，加 Kd 抑制摆动
  */
-#define TRACK_KP            0.78f        /* 循迹P - 从小开始调 */
-#define TRACK_KD            0.38f        /* 循迹D - P调好后再加 */
+#define TRACK_KP            8.00f        /* 循迹P - 回退到验证过的值，先修内环 */
+#define TRACK_KD            0.80f        /* 循迹D - 回退到验证过的值 */
 
 /*==================== 速度设定 ====================*/
 /* 注意：PWM=30 对应约 650 mm/s
  * 基础速度要根据实际电机能力设置
  */
-#define BASE_SPEED_MMS      500.0f      /* 基础速度 mm/s */
-#define MIN_SPEED_MMS       100.0f      /* 最低速度 mm/s */
-#define MAX_SPEED_MMS       800.0f      /* 最高速度 mm/s */
+#define BASE_SPEED_MMS      320.0f      /* 大幅降速！先跑稳再提速 */
+#define MIN_SPEED_MMS        60.0f      /* 最低速度 mm/s */
+#define MAX_SPEED_MMS       600.0f      /* 最高速度 mm/s */
 
 /*==================== PWM限制 ====================*/
 /* 注意：电机驱动接受 0~100 的百分比值
@@ -820,6 +820,231 @@ int main(void)
 
 /*==================== 辅助宏 ====================*/
 #define ABSF(x)             (((x) >= 0.0f) ? (x) : -(x))
+
+/*==================== 日志缓冲系统 ====================*/
+/* 运行时存到RAM，停下来后通过串口导出
+ * 每条日志 8 字节，可存约 2000 条（约 20 秒 @ 10ms周期）
+ */
+#define LOG_ENABLE          1           /* 1=启用日志，0=关闭 */
+#define LOG_PERIOD_MS       10          /* 日志记录周期（ms）*/
+#define LOG_MAX_ENTRIES     1400        /* 最大日志条数（扩展诊断字段后降低容量以控RAM） */
+
+typedef struct {
+    uint16_t timeMs;        /* 相对时间（ms） */
+    uint16_t seq;           /* 行序号（导出完整性校验） */
+    uint8_t  testId;        /* 每行都带测试编号，避免分片时丢上下文 */
+
+    int8_t   trackError;    /* 循迹误差 */
+    uint8_t  sensorRaw;     /* 传感器原始值 */
+    int8_t   pwmL;          /* 左轮PWM */
+    int8_t   pwmR;          /* 右轮PWM */
+    int8_t   speedL;        /* 左轮速度/10（实际=值*10 mm/s） */
+    int8_t   speedR;        /* 右轮速度/10 */
+    int16_t  tgtL;          /* 目标左轮速度 mm/s */
+    int16_t  tgtR;          /* 目标右轮速度 mm/s */
+
+    uint8_t  flags;         /* bit0:edgeTurn, bit1:edgeL, bit2:edgeR,
+                               bit3:recovery, bit4:protection,
+                               bit5:postEtLock, bit6:kpBoost, bit7:stabilize */
+    uint8_t  edgeTurnSlow;  /* 边缘退出缓行剩余帧 */
+    uint8_t  satInfo;       /* bit0:turnSat, bit1:pwmLsat, bit2:pwmRsat */
+    int8_t   kpScale10;     /* 动态Kp倍率*10（10=1.0x） */
+    int8_t   dtMs;          /* 控制周期ms */
+    int8_t   errSpdL10;     /* (tgtL-speedL)/10 */
+    int8_t   errSpdR10;     /* (tgtR-speedR)/10 */
+
+    int16_t  turnOutput;    /* 转向输出（合成后） */
+    int16_t  dynBaseSpd;    /* 动态基础速度 mm/s */
+} LogEntry_t;
+
+#if LOG_ENABLE
+static LogEntry_t s_logBuffer[LOG_MAX_ENTRIES];
+static uint16_t s_logIndex = 0;
+static uint16_t s_logSeq = 0;
+static uint32_t s_logStartMs = 0;
+static uint32_t s_lastLogMs = 0;
+static uint8_t s_logRunning = 0;
+static uint8_t s_testNum = 0;          /* 当前测试编号（1,2,3...） */
+
+/* 添加一条日志 */
+static void Log_Add(uint32_t nowMs, int8_t err, uint8_t raw,
+                    float pwmL, float pwmR, float spdL, float spdR,
+                    float tgtL, float tgtR,
+                    uint8_t flags, uint8_t etSlow,
+                    uint8_t satInfo, float kpScale, float dtMs,
+                    float errSpdL, float errSpdR,
+                    float turnOut, float dynBase)
+{
+    if (s_logIndex >= LOG_MAX_ENTRIES) return;
+
+    LogEntry_t *entry = &s_logBuffer[s_logIndex];
+    float kp10 = kpScale * 10.0f;
+    float eL10 = errSpdL / 10.0f;
+    float eR10 = errSpdR / 10.0f;
+    entry->timeMs = (uint16_t)(nowMs - s_logStartMs);
+    entry->seq = s_logSeq++;
+    entry->testId = s_testNum;
+    entry->trackError = err;
+    entry->sensorRaw = raw;
+    entry->pwmL = (int8_t)pwmL;
+    entry->pwmR = (int8_t)pwmR;
+    entry->speedL = (int8_t)(spdL / 10.0f);
+    entry->speedR = (int8_t)(spdR / 10.0f);
+    entry->tgtL = (int16_t)tgtL;
+    entry->tgtR = (int16_t)tgtR;
+    entry->flags = flags;
+    entry->edgeTurnSlow = etSlow;
+    entry->satInfo = satInfo;
+    if (kp10 > 127.0f) kp10 = 127.0f;
+    if (kp10 < -128.0f) kp10 = -128.0f;
+    entry->kpScale10 = (int8_t)kp10;
+    if (dtMs > 127.0f) dtMs = 127.0f;
+    if (dtMs < -128.0f) dtMs = -128.0f;
+    entry->dtMs = (int8_t)dtMs;
+    if (eL10 > 127.0f) eL10 = 127.0f;
+    if (eL10 < -128.0f) eL10 = -128.0f;
+    if (eR10 > 127.0f) eR10 = 127.0f;
+    if (eR10 < -128.0f) eR10 = -128.0f;
+    entry->errSpdL10 = (int8_t)eL10;
+    entry->errSpdR10 = (int8_t)eR10;
+    entry->turnOutput = (int16_t)turnOut;
+    entry->dynBaseSpd = (int16_t)dynBase;
+    s_logIndex++;
+}
+
+/* 插入测试分隔标记：trackError=127 表示这是一个标记条目，testNum存在sensorRaw中 */
+static void Log_InsertTestMarker(uint32_t nowMs)
+{
+    if (s_logIndex >= LOG_MAX_ENTRIES) return;
+    LogEntry_t *entry = &s_logBuffer[s_logIndex];
+    entry->timeMs = 0;
+    entry->seq = s_logSeq++;
+    entry->testId = s_testNum;
+    entry->trackError = 127;        /* 特殊标记值，正常范围不会出现 */
+    entry->sensorRaw = s_testNum;   /* 测试编号 */
+    entry->pwmL = 0;
+    entry->pwmR = 0;
+    entry->speedL = 0;
+    entry->speedR = 0;
+    entry->tgtL = 0;
+    entry->tgtR = 0;
+    entry->flags = 0xFF;            /* 全1标志，便于识别 */
+    entry->edgeTurnSlow = 0;
+    entry->satInfo = 0;
+    entry->kpScale10 = 10;
+    entry->dtMs = 0;
+    entry->errSpdL10 = 0;
+    entry->errSpdR10 = 0;
+    entry->turnOutput = 0;
+    entry->dynBaseSpd = 0;
+    s_logIndex++;
+}
+
+/* 开始记录（追加模式：不清空缓冲区，插入测试标记） */
+static void Log_Start(uint32_t nowMs)
+{
+    s_testNum++;
+    Log_InsertTestMarker(nowMs);
+    s_logStartMs = nowMs;
+    s_lastLogMs = nowMs;
+    s_logRunning = 1;
+}
+
+/* 停止记录 */
+static void Log_Stop(void)
+{
+    s_logRunning = 0;
+}
+
+/* 清空日志缓冲区 */
+static void Log_Clear(void)
+{
+    s_logIndex = 0;
+    s_logSeq = 0;
+    s_testNum = 0;
+    s_logRunning = 0;
+}
+
+/* 统计8位中1的个数（active触发点数） */
+static uint8_t PopCount8(uint8_t x)
+{
+    uint8_t c = 0;
+    while (x) {
+        c += (uint8_t)(x & 1U);
+        x >>= 1;
+    }
+    return c;
+}
+
+/* 导出日志到串口（CSV格式，改进版：每行延时防截断，测试标记分隔）*/
+static void Log_Export(void)
+{
+    char buf[180];
+    uint16_t i;
+
+    /* 使用 UART4 (PC10/PC11) - DAPLink 连接到这里 */
+    UART4_init(115200);
+    Delay_ms(50);
+
+    /* 导出标记 */
+    sprintf(buf, "#LOG_BEGIN,%u,%u\r\n", s_logIndex, s_testNum);
+    UART4_Send_String(buf);
+    Delay_ms(5);
+
+    /* 打印表头 */
+    UART4_Send_String("seq,test_id,time_ms,error,sensor,active,cnt,pwmL,pwmR,speedL,speedR,tgtL,tgtR,flags,etSlow,sat,kpScale10,dtMs,errSpdL10,errSpdR10,turnOut,dynBase\r\n");
+    Delay_ms(5);
+
+    /* 打印数据 */
+    for (i = 0; i < s_logIndex; i++) {
+        LogEntry_t *e = &s_logBuffer[i];
+
+        /* 测试分隔标记：trackError==127 && flags==0xFF */
+        if (e->trackError == 127 && e->flags == 0xFF) {
+            sprintf(buf, "#TEST,%u\r\n", e->sensorRaw);
+            UART4_Send_String(buf);
+            Delay_ms(3);
+            continue;
+        }
+
+        {
+            uint8_t active = (uint8_t)(~e->sensorRaw);
+            uint8_t cnt = PopCount8(active);
+            sprintf(buf, "%u,%u,%u,%d,0x%02X,0x%02X,%u,%d,%d,%d,%d,%d,%d,0x%02X,%u,0x%02X,%d,%d,%d,%d,%d,%d\r\n",
+                    (unsigned)e->seq,
+                    (unsigned)e->testId,
+                    (unsigned)e->timeMs,
+                    e->trackError,
+                    e->sensorRaw,
+                    active,
+                    cnt,
+                    e->pwmL,
+                    e->pwmR,
+                    e->speedL * 10,
+                    e->speedR * 10,
+                    (int)e->tgtL,
+                    (int)e->tgtR,
+                    e->flags,
+                    e->edgeTurnSlow,
+                    e->satInfo,
+                    e->kpScale10,
+                    e->dtMs,
+                    e->errSpdL10,
+                    e->errSpdR10,
+                    (int)e->turnOutput,
+                    (int)e->dynBaseSpd);
+            UART4_Send_String(buf);
+        }
+
+        /* 每行加2ms延时，降低串口拥塞导致的拼行风险 */
+        Delay_ms(2);
+    }
+
+    sprintf(buf, "# Total: %u entries, %u tests\r\n", s_logIndex, s_testNum);
+    UART4_Send_String(buf);
+    UART4_Send_String("#LOG_END\r\n");
+}
+#endif /* LOG_ENABLE */
 
 /* 传感器权重 - 非线性分布（1,3,9,27模式）
  * 边缘传感器权重更大，让弯道反应更激烈
@@ -923,6 +1148,13 @@ int main(void)
     
     /* OLED 初始化 */
     OLED_Init();
+
+#if LOG_ENABLE
+    /* 启动标记：用于验证PC10日志串口是否有输出 */
+    UART4_init(115200);
+    Delay_ms(10);
+    UART4_Send_String("#BOOT\r\n");
+#endif
     Delay_ms(100);
     
     /* 电机和编码器 */
@@ -943,8 +1175,8 @@ int main(void)
 #else
     OLED_ShowString(1, 1, "V6 Clean");
     OLED_ShowString(2, 1, "SpdPI+TrackPD");
-    OLED_ShowString(3, 1, "PC5=Start/Stop");
-    OLED_ShowString(4, 1, "4-2-1 Method");
+    OLED_ShowString(3, 1, "C5=Run/Stop");
+    OLED_ShowString(4, 1, "C4=Stop+Export");
 #endif
     
     lastControlMs = SysTick_GetMs();
@@ -963,7 +1195,7 @@ int main(void)
         key2Event = Key2_GetEvent();
         if (key2Event != KEY2_EVENT_NONE) Key2_ClearEvent();
         
-        /* PC4 = 紧急停止 */
+        /* PC4 = 紧急停止 + 导出日志 */
         if (key2Event == KEY2_EVENT_SHORT || key2Event == KEY2_EVENT_LONG) {
             Motor_SetSpeedBoth(0, 0);
             running = 0;
@@ -971,6 +1203,20 @@ int main(void)
             PI_Reset(&s_piL);
             PI_Reset(&s_piR);
             s_speedFiltInit = 0;
+#if LOG_ENABLE
+            Log_Stop();
+            OLED_Clear();
+            {
+                char buf[32];
+                sprintf(buf, "T%u %u entries", s_testNum, s_logIndex);
+                OLED_ShowString(1, 1, buf);
+            }
+            OLED_ShowString(2, 1, "Exporting...");
+            Log_Export();
+            OLED_ShowString(3, 1, "Done!");
+            OLED_ShowString(4, 1, "C5=NewTest");
+            /* 不清空缓冲区：下次C5会追加，下次C4会导出全部 */
+#endif
         }
         
         /* PC5 = 开始/停止 */
@@ -982,11 +1228,17 @@ int main(void)
                 PI_Reset(&s_piL);
                 PI_Reset(&s_piR);
                 s_speedFiltInit = 0;
+#if LOG_ENABLE
+                Log_Stop();
+#endif
             } else {
                 /* 启动：预填积分，加速启动 */
                 s_piL.integral = 150.0f;
                 s_piR.integral = 150.0f;
                 s_speedFiltInit = 0;
+#if LOG_ENABLE
+                Log_Start(nowMs);  /* 追加模式：不清空，插入测试标记 */
+#endif
             }
             s_lastErr = 0;
         }
@@ -994,9 +1246,10 @@ int main(void)
         /* 编码器更新 + 控制周期 2ms（高频控制，快速响应）
          * 500mm/s 下每2ms移动1mm，必须快速反应
          */
-        if ((nowMs - lastControlMs) >= 0.5)
+        if ((nowMs - lastControlMs) >= 2)
         {
             float dt = (float)(nowMs - lastControlMs) / 1000.0f;
+            if (dt < 0.002f) dt = 0.002f;
             
             /* 第一时间读取传感器！不要等！ */
             ir_raw = IR_GPIO_Read();
@@ -1061,6 +1314,12 @@ int main(void)
             }
 #else
             /*==================== 串级控制：循迹PD(外环) + 速度PI(内环) ====================*/
+            /* V7 极简版：砍掉所有复杂状态机，回归"看到线就跟"的核心
+             * 原则：
+             * 1. 传感器有线 → PD 立刻跟，不要任何延迟/锁定
+             * 2. 丢线 → 按上次方向低速转，一旦看到线立刻恢复PD
+             * 3. 弯道 → 靠非线性Kp + 自动减速，不需要ET模式
+             */
             {
                 uint8_t active = (uint8_t)(~ir_raw);  /* 1=触发 */
                 int16_t sum = 0;
@@ -1070,8 +1329,16 @@ int main(void)
                 float turnOutput;
                 float spdL_filt, spdR_filt;
                 float pwmL, pwmR;
+                float logTurnOutput = 0.0f;
+                float logDynBaseSpd = 0.0f;
+                uint8_t logFlags = 0;
+                uint8_t logSatInfo = 0;
+                float logKpScale = 1.0f;
+                float errSpdL = 0.0f;
+                float errSpdR = 0.0f;
                 static float lastTrackError = 0;
-                
+                static uint8_t lostLineFrames = 0;  /* 连续丢线帧数 */
+
                 /*---------- 第一步：计算循迹误差 ----------*/
                 for (i = 0; i < 8; i++) {
                     if (active & (1U << (7 - i))) {
@@ -1079,77 +1346,177 @@ int main(void)
                         count++;
                     }
                 }
-                
+
                 if (count == 0) {
                     /* 丢线：保持上次方向，给最大误差 */
                     trackError = (s_lastDir > 0) ? 25.0f : -25.0f;
-                } else if (count == 8) {
-                    /* 全触发（十字路口）：直行 */
-                    trackError = 0;
+                    if (lostLineFrames < 255) lostLineFrames++;
+                    logFlags |= 0x08U; /* bit3: 丢线中 */
                 } else {
-                    trackError = (float)sum / (float)count;
-                    /* 记录方向 */
-                    if (trackError > 1) s_lastDir = 1;
-                    else if (trackError < -1) s_lastDir = -1;
+                    /* 有线！立刻跟踪，不管之前是什么状态 */
+                    if (count == 8) {
+                        /* 全触发（十字路口）：直行 */
+                        trackError = 0;
+                    } else {
+                        trackError = (float)sum / (float)count;
+                    }
+
+                    /* 丢线刚恢复：重置PI积分器防暴冲
+                     * 同时把 lastTrackError 对齐到当前误差，避免 D 项因“25→小误差”突变
+                     * 造成反向尖峰（T5 出现 +12/-12 来回翻的一种常见诱因）。
+                     */
+                    if (lostLineFrames > 5) {
+                        PI_Reset(&s_piL);
+                        PI_Reset(&s_piR);
+                        lastTrackError = trackError;
+                        logFlags |= 0x80U; /* bit7: 刚从丢线恢复 */
+                    }
+                    lostLineFrames = 0;
+
+                    /* 更新方向记忆（只在有线时更新） */
+                    if (trackError >= 1) s_lastDir = 1;
+                    else if (trackError <= -1) s_lastDir = -1;
                 }
-                
-                /*---------- 第二步：循迹PD计算转向输出 ----------*/
-                /* 非线性Kp：误差大时Kp翻倍，增强弯道反应 */
+
+                /*---------- 第二步：PD计算转向 ----------*/
                 {
-                    float absErr = (trackError >= 0) ? trackError : -trackError;
+                    float absErr = ABSF(trackError);
                     float dynamicKp = TRACK_KP;
                     float dynamicBaseSpeed = BASE_SPEED_MMS;
-                    
-                    /* 非线性Kp：误差>8时开始增强，最大3倍 
-                     * 权重范围-20~+20，8约为40%位置
+                    float dErr;
+
+                    /* 非线性Kp：误差越大，Kp越大
+                     * 基础Kp=8已经很强，非线性倍率要保守
+                     * 小误差(0~3)：1.0x — 直线稳定
+                     * 中误差(3~8)：1.05~1.8x — 浅弯需要更强响应
+                     * 大误差(8~25)：1.8~2.8x — 急弯猛转
+                     * T5数据: err=-3时turnOut=-24差速48太小，几乎直行
+                     * T2数据: err=+7时turnOut=89差速178不够跟急弯
                      */
                     if (absErr > 8.0f) {
-                        dynamicKp = TRACK_KP * (1.0f + (absErr - 8.0f) / 8.0f);
-                        if (dynamicKp > TRACK_KP * 3.0f) dynamicKp = TRACK_KP * 3.0f;
+                        dynamicKp = TRACK_KP * (1.8f + (absErr - 8.0f) * 0.06f);
+                        if (dynamicKp > TRACK_KP * 2.8f) dynamicKp = TRACK_KP * 2.8f;
+                    } else if (absErr > 3.0f) {
+                        dynamicKp = TRACK_KP * (1.05f + (absErr - 3.0f) * 0.15f);
                     }
-                    
-                    /* 弯道自动减速：误差>5时降速，获得更小转弯半径 
-                     * 权重范围-20~+20，5约为25%位置
+                    logKpScale = dynamicKp / TRACK_KP;
+
+                    /* 弯道自动减速：误差越大速度越低
+                     * 弯道3弯峰err=-7~-10时速度280~256仍太快，跟不住弯峰
+                     * 加大减速斜率：0.025→0.035，大误差区降速更猛
+                     * absErr=0: 100% 速度 (320)
+                     * absErr=5: ~89% (286)
+                     * absErr=7: ~82% (264)  ← 之前是280，现在更低
+                     * absErr=10: ~72% (230)  ← 之前是256
+                     * absErr=15: ~54% (174)
+                     * absErr=25: ~20% → clamp 25% (80)
                      */
-                    if (absErr > 5.0f) {
-                        float speedFactor = 1.0f - (absErr - 5.0f) * 0.04f;
-                        if (speedFactor < 0.4f) speedFactor = 0.4f;  /* 最低40%速度 */
-                        dynamicBaseSpeed = BASE_SPEED_MMS * speedFactor;
+                    if (absErr > 2.0f) {
+                        float speedFactor = 1.0f - (absErr - 2.0f) * 0.035f;
+                        if (speedFactor < 0.25f) speedFactor = 0.25f;
+                        dynamicBaseSpeed *= speedFactor;
                     }
-                    
-                    /* Turn_Output = Kp * Error + Kd * dError/dt */
-                    turnOutput = dynamicKp * trackError + TRACK_KD * (trackError - lastTrackError) / dt;
+
+                    /* 丢线时额外降速 + 限制转向 */
+                    if (lostLineFrames > 0) {
+                        /* 丢线搜索策略：温柔搜索，避免冲过线 */
+                        dynamicBaseSpeed = 160.0f;  /* 固定搜索速度 */
+                        if (lostLineFrames > 50) {
+                            dynamicBaseSpeed = 130.0f; /* 长时间丢线稍降 */
+                        }
+                        logFlags |= 0x10U; /* bit4: 丢线降速 */
+                    }
+
+                    /* PD计算 */
+                    dErr = (trackError - lastTrackError) / dt;
+                    /* 限制微分项，防止噪声放大 */
+                    /* 传感器误差量化步长=1, dt=0.002s, 正常dErr=500
+                     * 限幅要小！否则D项尖峰远超P项导致摇摆
+                     * clamp=10: 最大D贡献=0.8*10=8, 与P项(8*1=8)匹配
+                     */
+                    if (dErr > 10.0f) dErr = 10.0f;
+                    if (dErr < -10.0f) dErr = -10.0f;
+
+                    turnOutput = dynamicKp * trackError + TRACK_KD * dErr;
                     lastTrackError = trackError;
-                    
-                    /* 限制转向输出 - 增大限幅，允许更激烈转向 */
-                    if (turnOutput > 300.0f) turnOutput = 300.0f;
-                    if (turnOutput < -300.0f) turnOutput = -300.0f;
-                    
-                    /*---------- 第三步：串级叠加计算目标速度 ----------*/
+
+                    /* 转向限幅：丢线时需要足够转向力搜索 */
+                    {
+                        float turnLimit = 300.0f;
+                        if (lostLineFrames > 0) {
+                            turnLimit = 220.0f; /* 丢线搜索: 180太小转不回来，提高到220 */
+                        }
+                        if (turnOutput > turnLimit) {
+                            turnOutput = turnLimit;
+                            logSatInfo |= 0x01U;
+                        }
+                        if (turnOutput < -turnLimit) {
+                            turnOutput = -turnLimit;
+                            logSatInfo |= 0x01U;
+                        }
+                    }
+
+                    /* 保存日志数据 */
+                    logTurnOutput = turnOutput;
+                    logDynBaseSpd = dynamicBaseSpeed;
+
+                    /*---------- 第三步：计算目标速度 ----------*/
                     targetL = dynamicBaseSpeed + turnOutput;
                     targetR = dynamicBaseSpeed - turnOutput;
                 }
-                
-                /* 目标速度限幅 */
-                if (targetL < MIN_SPEED_MMS) targetL = MIN_SPEED_MMS;
-                if (targetR < MIN_SPEED_MMS) targetR = MIN_SPEED_MMS;
-                if (targetL > MAX_SPEED_MMS) targetL = MAX_SPEED_MMS;
-                if (targetR > MAX_SPEED_MMS) targetR = MAX_SPEED_MMS;
-                
-                /*---------- 第四步：速度PI闭环（内环）----------*/
+
+                /* 目标速度限幅
+                 * 关键修复：弯道/丢线时不要强行把内侧轮抬到 MIN_SPEED_MMS。
+                 * 否则会“推着走”，转弯半径变大（T2/T5 的典型症状）。
+                 */
+                {
+                    float minSpeed = MIN_SPEED_MMS;
+
+                    /* 丢线搜索/大误差：允许内侧轮降到 0，提高转向半径能力 */
+                    if (lostLineFrames > 0 || ABSF(trackError) > 8.0f) {
+                        minSpeed = 0.0f;
+                    }
+
+                    /* 目标速度不允许为负（本工程不支持反转），负值按 0 处理 */
+                    if (targetL < 0.0f) targetL = 0.0f;
+                    if (targetR < 0.0f) targetR = 0.0f;
+
+                    if (targetL < minSpeed) targetL = minSpeed;
+                    if (targetR < minSpeed) targetR = minSpeed;
+                    if (targetL > MAX_SPEED_MMS) targetL = MAX_SPEED_MMS;
+                    if (targetR > MAX_SPEED_MMS) targetR = MAX_SPEED_MMS;
+                }
+
+                /*---------- 第四步：速度PI闭环 ----------*/
                 spdL_filt = s_speedFiltInit ? s_speedL_f : speedL;
                 spdR_filt = s_speedFiltInit ? s_speedR_f : speedR;
-                
+
+                errSpdL = targetL - spdL_filt;
+                errSpdR = targetR - spdR_filt;
+
                 pwmL = PI_Compute(&s_piL, targetL, spdL_filt);
                 pwmR = PI_Compute(&s_piR, targetR, spdR_filt);
-                
+
+                if (pwmL >= (PWM_MAX - 0.5f) || pwmL <= (PWM_MIN + 0.5f)) logSatInfo |= 0x02U;
+                if (pwmR >= (PWM_MAX - 0.5f) || pwmR <= (PWM_MIN + 0.5f)) logSatInfo |= 0x04U;
+
                 /* 设置电机 */
                 Motor_SetSpeedBoth((int16_t)pwmL, (int16_t)pwmR);
-                
+
                 /* 更新显示变量 */
                 s_pwmL = pwmL;
                 s_pwmR = pwmR;
                 s_lastErr = (int8_t)trackError;
+
+#if LOG_ENABLE
+                /* 日志记录 */
+                if (s_logRunning && (nowMs - s_lastLogMs) >= LOG_PERIOD_MS) {
+                    s_lastLogMs = nowMs;
+                    Log_Add(nowMs, (int8_t)trackError, ir_raw, pwmL, pwmR, s_speedL_f, s_speedR_f, targetL, targetR,
+                            logFlags, (uint8_t)lostLineFrames, logSatInfo, logKpScale, dt * 1000.0f,
+                            errSpdL, errSpdR, logTurnOutput, logDynBaseSpd);
+                }
+#endif
             }
 #endif  /* SPEED_LOOP_TUNING */
         }
@@ -1546,4 +1913,3 @@ int main(void)
 }
 
 #endif /* MOTOR_TEST_MODE */
-
