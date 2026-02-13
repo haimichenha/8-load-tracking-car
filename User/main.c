@@ -16,6 +16,7 @@
 #include "app_stats.h"
 #include "app_motor.h"
 #include "bsp_ir_gpio.h"  /* GPIO 循迹驱动 */
+#include "HCSR04.h"       /* 超声波测距 */
 #include <stdio.h>
 
 /*====================================================================================*/
@@ -1080,6 +1081,40 @@ static int8_t s_lastErr = 0;         /* 上次误差（显示用） */
 static uint32_t s_runStartMs = 0;    /* 本次运行启动时刻 */
 static uint16_t s_finishVoteCnt = 0; /* 终点检测：连续全触发帧计数 */
 
+/*==================== 超声波避障 ====================*/
+/*
+ * 40cm 预警(不干涉), 20cm 介入(接管), 30cm 退出(迟滞)
+ * 梯度法: 下次距离 > 上次 → 方向正确; 反之翻转
+ * 有线时仅降速, 无线时转向避障
+ */
+#define OBS_PERIOD_MS       60      /* 测量周期 ms */
+#define OBS_WARN_CM         40.0f
+#define OBS_AVOID_CM        20.0f
+#define OBS_EXIT_CM         30.0f   /* 退出迟滞 */
+#define OBS_SPEED_FLOOR     0.25f   /* 最低速度比 */
+#define OBS_TURN_BASE       180.0f  /* 避障基础转向 */
+#define OBS_FILT_ALPHA      0.4f    /* 距离一阶滤波 */
+#define OBS_DIR_DEADBAND    1.0f    /* 梯度翻转死区 cm */
+#define OBS_DIR_LOCK_CNT    2       /* 翻转后锁定次数 */
+
+typedef enum { OBS_NONE = 0, OBS_WARNING, OBS_AVOID } ObsState_t;
+
+static ObsState_t s_obsState      = OBS_NONE;
+static float      s_obsDist       = -1.0f;   /* 滤波后距离 */
+static float      s_obsPrevDist   = -1.0f;   /* 上次距离(梯度用) */
+static int8_t     s_obsTurnDir    = 0;        /* +1 右转, -1 左转 */
+static uint8_t    s_obsDirLock    = 0;        /* 方向锁定倒计数 */
+static uint32_t   s_lastUltrasonicMs = 0;
+
+static void Obs_Reset(void)
+{
+    s_obsState    = OBS_NONE;
+    s_obsDist     = -1.0f;
+    s_obsPrevDist = -1.0f;
+    s_obsTurnDir  = 0;
+    s_obsDirLock  = 0;
+}
+
 /*==================== PI函数 ====================*/
 static void PI_Init(PI_t *pi, float kp, float ki, float intMax, float outMin, float outMax)
 {
@@ -1148,6 +1183,9 @@ int main(void)
     
     /* GPIO 循迹初始化 */
     IR_GPIO_Init();
+
+    /* 超声波初始化 */
+    HCSR04_Init();
     
     /* OLED 初始化 */
     OLED_Init();
@@ -1185,6 +1223,7 @@ int main(void)
     lastControlMs = SysTick_GetMs();
     lastEncoderMs = lastControlMs;
     lastOledMs = lastControlMs;
+    s_lastUltrasonicMs = lastControlMs;
     
     while (1)
     {
@@ -1206,6 +1245,7 @@ int main(void)
             PI_Reset(&s_piL);
             PI_Reset(&s_piR);
             s_speedFiltInit = 0;
+            Obs_Reset();
 #if LOG_ENABLE
             Log_Stop();
             OLED_Clear();
@@ -1231,6 +1271,7 @@ int main(void)
                 PI_Reset(&s_piL);
                 PI_Reset(&s_piR);
                 s_speedFiltInit = 0;
+                Obs_Reset();
 #if LOG_ENABLE
                 Log_Stop();
 #endif
@@ -1241,13 +1282,62 @@ int main(void)
                 s_speedFiltInit = 0;
                 s_runStartMs = nowMs;   /* 记录启动时间，用于终点检测 */
                 s_finishVoteCnt = 0;    /* 重置终点投票 */
+                Obs_Reset();            /* 重置避障 */
 #if LOG_ENABLE
                 Log_Start(nowMs);  /* 追加模式：不清空，插入测试标记 */
 #endif
             }
             s_lastErr = 0;
         }
-        
+
+        /* ===== 超声波非阻塞轮询 + 避障状态机 ===== */
+        HCSR04_Poll();
+        if ((nowMs - s_lastUltrasonicMs) >= OBS_PERIOD_MS) {
+            s_lastUltrasonicMs = nowMs;
+            HCSR04_StartMeasure();
+        }
+        if (running && HCSR04_IsNewReady()) {
+            float rawDist = HCSR04_GetDistance();
+            if (rawDist > 0.0f) {
+                /* 一阶低通滤波 */
+                if (s_obsDist < 0.0f) s_obsDist = rawDist;
+                else s_obsDist += OBS_FILT_ALPHA * (rawDist - s_obsDist);
+
+                /* --- 状态转换 --- */
+                if (s_obsDist < OBS_AVOID_CM) {
+                    if (s_obsState != OBS_AVOID) {
+                        /* 首次进入避障: 初始方向取循迹方向 */
+                        s_obsTurnDir = s_lastDir;
+                        s_obsDirLock = OBS_DIR_LOCK_CNT;
+                        s_obsState = OBS_AVOID;
+                    } else if (s_obsDirLock > 0) {
+                        s_obsDirLock--;  /* 刚翻转，锁定等稳定 */
+                    } else if (s_obsPrevDist > 0.0f) {
+                        /* 梯度判断: 越来越近 → 方向错了，翻转 */
+                        if (s_obsDist < s_obsPrevDist - OBS_DIR_DEADBAND) {
+                            s_obsTurnDir = -s_obsTurnDir;
+                            s_obsDirLock = OBS_DIR_LOCK_CNT;
+                        }
+                        /* 越来越远或不变 → 保持 */
+                    }
+                } else if (s_obsState == OBS_AVOID) {
+                    if (s_obsDist >= OBS_EXIT_CM) {
+                        /* 退出避障: 设搜索方向为避障反方向（线在那一侧） */
+                        s_lastDir = -s_obsTurnDir;
+                        s_dirConfident = 1;
+                        s_obsState = OBS_NONE;
+                    }
+                    /* 20~30cm 迟滞区: 保持避障 */
+                } else if (s_obsDist < OBS_WARN_CM) {
+                    s_obsState = OBS_WARNING;
+                } else {
+                    s_obsState = OBS_NONE;
+                }
+                s_obsPrevDist = s_obsDist;
+            }
+            /* 测量失败(-1): 保持当前状态 */
+        }
+
         /* 编码器更新 + 控制周期 2ms（高频控制，快速响应）
          * 500mm/s 下每2ms移动1mm，必须快速反应
          */
@@ -1367,6 +1457,7 @@ int main(void)
                         s_pwmL = 0; s_pwmR = 0;
                         PI_Reset(&s_piL);
                         PI_Reset(&s_piR);
+                        Obs_Reset();
 #if LOG_ENABLE
                         Log_Stop();
                         OLED_Clear();
@@ -1605,6 +1696,25 @@ int main(void)
                         }
                     }
 
+                    /* ===== 超声波避障接管 ===== */
+                    if (s_obsState == OBS_AVOID) {
+                        float distRatio = s_obsDist / OBS_AVOID_CM;
+                        if (distRatio < OBS_SPEED_FLOOR) distRatio = OBS_SPEED_FLOOR;
+                        if (distRatio > 1.0f) distRatio = 1.0f;
+
+                        /* 距离权重降速 */
+                        dynamicBaseSpeed *= distRatio;
+                        if (dynamicBaseSpeed < MIN_SPEED_MMS)
+                            dynamicBaseSpeed = MIN_SPEED_MMS;
+
+                        /* 无线 → 避障转向接管; 有线 → 保持循迹仅降速 */
+                        if (count == 0 || lostLineFrames > 3) {
+                            turnOutput = (float)s_obsTurnDir *
+                                (OBS_TURN_BASE + (1.0f - distRatio) * 120.0f);
+                        }
+                        logFlags |= 0x04U; /* bit2: 避障激活 */
+                    }
+
                     /* 保存日志数据 */
                     logTurnOutput = turnOutput;
                     logDynBaseSpd = dynamicBaseSpeed;
@@ -1702,14 +1812,22 @@ int main(void)
                 case 2: sprintf(buf, "PWM%2.0f/%2.0f", s_pwmL, s_pwmR);
                         OLED_ShowString(3, 1, buf); break;
                 case 3: {
-                        uint8_t active = (uint8_t)(~ir_raw);
-                        char sensorStr[9];
-                        int si;
-                        for (si = 0; si < 8; si++) {
-                            sensorStr[si] = (active & (1 << (7-si))) ? '*' : '-';
+                        if (s_obsState == OBS_AVOID) {
+                            sprintf(buf, "OBS%4.1fcm %c  ",
+                                    s_obsDist, s_obsTurnDir > 0 ? 'R' : 'L');
+                        } else if (s_obsState == OBS_WARNING) {
+                            sprintf(buf, "W %4.1fcm     ", s_obsDist);
+                        } else {
+                            uint8_t active = (uint8_t)(~ir_raw);
+                            char sensorStr[9];
+                            int si;
+                            for (si = 0; si < 8; si++) {
+                                sensorStr[si] = (active & (1 << (7-si))) ? '*' : '-';
+                            }
+                            sensorStr[8] = '\0';
+                            sprintf(buf, "%s", sensorStr);
                         }
-                        sensorStr[8] = '\0';
-                        OLED_ShowString(4, 1, sensorStr);
+                        OLED_ShowString(4, 1, buf);
                     } break;
                 }
 #endif  /* SPEED_LOOP_TUNING */
