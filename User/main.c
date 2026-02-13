@@ -771,9 +771,9 @@ int main(void)
  * 折中：Kp=0.15/Ki=0.06，兼顾平滑与响应
  */
 #define SPEED_KP            0.15f       /* 速度P - 折中值 */
-#define SPEED_KI            0.06f       /* 速度I - 折中值，比0.12低一半 */
+#define SPEED_KI            0.08f       /* 速度I - 竞速提高：更快跟踪高目标速度 */
 #define SPEED_KD            0.0f        /* 速度D - 不需要 */
-#define INTEGRAL_MAX        150.0f      /* 积分限幅 - 适度收紧 */
+#define INTEGRAL_MAX        200.0f      /* 积分限幅 - 竞速放宽：高速需更大积分空间 */
 
 /*==================== 速度环调试目标速度 ====================*/
 /* 注意：PWM=30 对应约 650 mm/s，所以目标速度要合理设置
@@ -788,16 +788,16 @@ int main(void)
  * 3. Kp 太大：左右摆动（蛇形）
  * 4. 找到临界点后，加 Kd 抑制摆动
  */
-#define TRACK_KP            8.00f        /* 循迹P - 回退到验证过的值，先修内环 */
-#define TRACK_KD            1.20f        /* 循迹D - 提高阻尼，抑制-3/-7振荡 */
+#define TRACK_KP            12.00f       /* 循迹P - 竞速650：高速需更强响应 */
+#define TRACK_KD            2.50f        /* 循迹D - 竞速650：高速需更强阻尼 */
 
 /*==================== 速度设定 ====================*/
 /* 注意：PWM=30 对应约 650 mm/s
  * 基础速度要根据实际电机能力设置
  */
-#define BASE_SPEED_MMS      320.0f      /* 大幅降速！先跑稳再提速 */
+#define BASE_SPEED_MMS      650.0f      /* 竞速模式 650mm/s */
 #define MIN_SPEED_MMS        60.0f      /* 最低速度 mm/s */
-#define MAX_SPEED_MMS       600.0f      /* 最高速度 mm/s */
+#define MAX_SPEED_MMS       1100.0f     /* 提高上限：650+400(turnOut)=1050 */
 
 /*==================== PWM限制 ====================*/
 /* 注意：电机驱动接受 0~100 的百分比值
@@ -1075,7 +1075,10 @@ static float s_pwmL = 0, s_pwmR = 0; /* 当前PWM */
 static float s_speedL_f = 0, s_speedR_f = 0;  /* 滤波后速度 */
 static uint8_t s_speedFiltInit = 0;  /* 速度滤波初始化标志 */
 static int8_t s_lastDir = 1;         /* 上次方向：1=右，-1=左 */
+static uint8_t s_dirConfident = 0;   /* 方向置信度：1=来自|err|>=3的深弯，0=来自|err|<3的浅偏 */
 static int8_t s_lastErr = 0;         /* 上次误差（显示用） */
+static uint32_t s_runStartMs = 0;    /* 本次运行启动时刻 */
+static uint16_t s_finishVoteCnt = 0; /* 终点检测：连续全触发帧计数 */
 
 /*==================== PI函数 ====================*/
 static void PI_Init(PI_t *pi, float kp, float ki, float intMax, float outMin, float outMax)
@@ -1236,6 +1239,8 @@ int main(void)
                 s_piL.integral = 150.0f;
                 s_piR.integral = 150.0f;
                 s_speedFiltInit = 0;
+                s_runStartMs = nowMs;   /* 记录启动时间，用于终点检测 */
+                s_finishVoteCnt = 0;    /* 重置终点投票 */
 #if LOG_ENABLE
                 Log_Start(nowMs);  /* 追加模式：不清空，插入测试标记 */
 #endif
@@ -1347,6 +1352,41 @@ int main(void)
                     }
                 }
 
+                /*---------- 终点检测（投票机制）----------
+                 * 全部8个传感器触发 → 投票+1，否则归零
+                 * 连续20帧(40ms)全触发 → 判定为终点停车线
+                 * 封闭图形交叉路口全触发通常仅3-8帧(6-16ms)，不会误触发
+                 * 前5秒不检测：避免起跑线误判
+                 */
+                if (count == 8 && (nowMs - s_runStartMs) > 5000) {
+                    s_finishVoteCnt++;
+                    if (s_finishVoteCnt >= 20) {
+                        /* 终点！停车 */
+                        Motor_SetSpeedBoth(0, 0);
+                        running = 0;
+                        s_pwmL = 0; s_pwmR = 0;
+                        PI_Reset(&s_piL);
+                        PI_Reset(&s_piR);
+#if LOG_ENABLE
+                        Log_Stop();
+                        OLED_Clear();
+                        OLED_ShowString(1, 1, "FINISH!");
+                        {
+                            char buf[32];
+                            sprintf(buf, "Time: %.1fs",
+                                    (float)(nowMs - s_runStartMs) / 1000.0f);
+                            OLED_ShowString(2, 1, buf);
+                            sprintf(buf, "T%u %u entries", s_testNum, s_logIndex);
+                            OLED_ShowString(3, 1, buf);
+                        }
+                        OLED_ShowString(4, 1, "C4=Export");
+#endif
+                        continue;
+                    }
+                } else {
+                    s_finishVoteCnt = 0;
+                }
+
                 if (count == 0) {
                     /* 丢线：保持上次方向，给最大误差 */
                     trackError = (s_lastDir > 0) ? 25.0f : -25.0f;
@@ -1355,14 +1395,25 @@ int main(void)
                 } else {
                     /* 有线！立刻跟踪，不管之前是什么状态 */
                     if (count == 8) {
-                        /* 全触发（十字路口）：直行 */
-                        trackError = 0;
+                        /* 全触发（十字路口）：保持上一帧轨迹
+                         * 不能设0直行！如果赛道在路口处有弯，直行会跟错线
+                         */
+                        trackError = lastTrackError;
+                        logFlags |= 0x40U; /* bit6: 交叉路口 */
+                    } else if (count >= 4
+                               && (active & 0xC0)   /* 左侧有触发 */
+                               && (active & 0x03)) { /* 右侧也有触发 */
+                        /* 左右两侧同时触发 = 交叉路口穿越中
+                         * 保持上一帧轨迹，避免被交叉线的加权平均拉偏方向
+                         */
+                        trackError = lastTrackError;
+                        logFlags |= 0x40U; /* bit6: 交叉路口 */
                     } else {
                         trackError = (float)sum / (float)count;
                     }
 
                     /* 丢线刚恢复：重置PI积分器防暴冲
-                     * 同时把 lastTrackError 对齐到当前误差，避免 D 项因“25→小误差”突变
+                     * 同时把 lastTrackError 对齐到当前误差，避免 D 项因"25→小误差"突变
                      * 造成反向尖峰（T5 出现 +12/-12 来回翻的一种常见诱因）。
                      */
                     if (lostLineFrames > 5) {
@@ -1371,12 +1422,60 @@ int main(void)
                         lastTrackError = trackError;
                         logFlags |= 0x80U; /* bit7: 刚从丢线恢复 */
                     }
+
+                    /* 交叉路口方向锁定：
+                     * 丢线后短时间内找到反方向的线，说明碰到了交叉线路
+                     * 忽略这条线，继续按原方向搜索，避免在封闭图形中反复纠缠
+                     * 条件：丢线帧数 3~8
+                     *        且找到的线方向与搜索方向相反
+                     *        且误差较小(|err|<5)——大误差是真实轨迹
+                     *        且方向置信度高——低置信(来自error=±1)可能是交叉线误导的
+                     */
+                    if (lostLineFrames >= 3 && lostLineFrames <= 8
+                        && s_dirConfident) {
+                        int foundDir = (trackError >= 1) ? 1 : ((trackError <= -1) ? -1 : 0);
+                        if (foundDir != 0 && foundDir != s_lastDir
+                            && ABSF(trackError) < 5.0f) {
+                            /* 方向矛盾：这是交叉线，忽略它，继续搜索 */
+                            trackError = (s_lastDir > 0) ? 25.0f : -25.0f;
+                            /* 不重置 lostLineFrames，继续搜索 */
+                            logFlags |= 0x40U; /* bit6: 交叉路口忽略 */
+                            goto skip_line_found;
+                        }
+                    }
+
                     lostLineFrames = 0;
 
-                    /* 更新方向记忆（只在有线时更新） */
-                    if (trackError >= 1) s_lastDir = 1;
-                    else if (trackError <= -1) s_lastDir = -1;
+                    /* 更新方向记忆 — 连续帧确认 + 置信度标记
+                     * 同方向：立即保持（计数器归零），大误差时提升置信度
+                     * 反方向：需连续5帧(10ms)确认才翻转
+                     * 翻转时标记置信度：|error|>=3 → 高置信，|error|<3 → 低置信
+                     * 交叉路口拒绝逻辑只信任高置信度方向，避免被交叉线误导
+                     */
+                    {
+                        static uint8_t s_dirFlipCnt = 0;
+                        int8_t curDir = 0;
+                        if (trackError >= 1) curDir = 1;
+                        else if (trackError <= -1) curDir = -1;
+
+                        if (curDir == s_lastDir || curDir == 0) {
+                            s_dirFlipCnt = 0;  /* 同方向或居中，重置 */
+                            /* 同方向时，大误差升级置信度 */
+                            if (curDir == s_lastDir && ABSF(trackError) >= 3.0f)
+                                s_dirConfident = 1;
+                        } else {
+                            /* 反方向：累计确认 */
+                            s_dirFlipCnt++;
+                            if (s_dirFlipCnt >= 5) {
+                                s_lastDir = curDir;
+                                s_dirFlipCnt = 0;
+                                /* 翻转时标记置信度 */
+                                s_dirConfident = (ABSF(trackError) >= 3.0f) ? 1 : 0;
+                            }
+                        }
+                    }
                 }
+                skip_line_found:
 
                 /*---------- 第二步：PD计算转向 ----------*/
                 {
@@ -1385,72 +1484,116 @@ int main(void)
                     float dynamicBaseSpeed = BASE_SPEED_MMS;
                     float dErr;
 
-                    /* 非线性Kp：误差越大，Kp越大
+                    /* 非线性Kp：误差越大，Kp越大（竞速650版）
                      * 小误差(0~1)：1.0x — 直线稳定
-                     * 中误差(1~8)：1.05~2.21x — 更早介入hold住小弯
-                     *   err=3: 1.38x turnOut=33 (+38%)
-                     *   err=5: 1.71x turnOut=68
-                     *   err=7: 2.04x turnOut=114
-                     * 大误差(8~25)：2.2~3.5x — 大弯快速摆车身
-                     *   err=10: 2.36x turnOut=189
-                     *   err=12: 2.52x turnOut=242
+                     * 中误差(1~8)：1.10~2.50x — 高速下更早更强的弯道响应
+                     *   err=3: 1.50x turnOut=54
+                     *   err=5: 1.90x turnOut=114
+                     *   err=7: 2.30x turnOut=193
+                     * 大误差(8~25)：2.5~4.0x — 急弯时暴力摆车身
+                     *   err=10: 2.70x turnOut=324
+                     *   err=12: 2.90x turnOut=400(cap)
                      */
                     if (absErr > 8.0f) {
-                        dynamicKp = TRACK_KP * (2.2f + (absErr - 8.0f) * 0.08f);
-                        if (dynamicKp > TRACK_KP * 3.5f) dynamicKp = TRACK_KP * 3.5f;
+                        dynamicKp = TRACK_KP * (2.5f + (absErr - 8.0f) * 0.10f);
+                        if (dynamicKp > TRACK_KP * 4.0f) dynamicKp = TRACK_KP * 4.0f;
                     } else if (absErr > 1.0f) {
-                        dynamicKp = TRACK_KP * (1.05f + (absErr - 1.0f) * 0.165f);
+                        dynamicKp = TRACK_KP * (1.10f + (absErr - 1.0f) * 0.20f);
                     }
                     logKpScale = dynamicKp / TRACK_KP;
 
-                    /* 弯道自动减速：误差越大速度越低
-                     * absErr=0: 100% (320)
-                     * absErr=3: 96% (306)
-                     * absErr=5: 87% (277)
-                     * absErr=7: 78% (248)
-                     * absErr=10: 64% (205)
-                     * absErr=12: 55% (176)
-                     * absErr=25: clamp 20% (64)
+                    /* 弯道自动减速（竞速650版）：误差越大速度越低
+                     * absErr=0: 100% (650)
+                     * absErr=2: 97% (630)
+                     * absErr=3: 90% (588)
+                     * absErr=5: 77% (503)
+                     * absErr=7: 64% (418)
+                     * absErr=10: 45% (291)
+                     * absErr=12: 32% (207)
+                     * absErr=15+: clamp 15% (98)
                      */
-                    if (absErr > 2.0f) {
-                        float speedFactor = 1.0f - (absErr - 2.0f) * 0.045f;
-                        if (speedFactor < 0.20f) speedFactor = 0.20f;
+                    if (absErr > 1.5f) {
+                        float speedFactor = 1.0f - (absErr - 1.5f) * 0.065f;
+                        if (speedFactor < 0.15f) speedFactor = 0.15f;
                         dynamicBaseSpeed *= speedFactor;
+                    }
+
+                    /* 直角弯预减速：误差变化率大 → 即将进入急弯
+                     * 正常S弯每帧误差变化1~2，直角弯入口可达3~7
+                     * 检测到快速变化时立即额外减速，给外侧轮留足转向空间
+                     * 同时为内侧轮快速降零创造条件（dynBase低 + turnOut大 → inner < 0 → 0）
+                     */
+                    if (dt < 0.015f && lostLineFrames == 0) {
+                        float errDelta = ABSF(trackError - lastTrackError);
+                        if (errDelta > 2.5f && absErr > 2.0f) {
+                            float decelExtra = 1.0f - (errDelta - 2.5f) * 0.15f;
+                            if (decelExtra < 0.45f) decelExtra = 0.45f;
+                            dynamicBaseSpeed *= decelExtra;
+                        }
                     }
 
                     /* 丢线时：分阶段搜索（降低初始速度，减少角动量） */
                     if (lostLineFrames > 0) {
                         if (lostLineFrames <= 15) {
                             /* 刚丢线：适中速度搜索 */
-                            dynamicBaseSpeed = 160.0f;
+                            dynamicBaseSpeed = 180.0f;
                         } else if (lostLineFrames <= 50) {
                             /* 中期：持续搜索 */
-                            dynamicBaseSpeed = 140.0f;
+                            dynamicBaseSpeed = 150.0f;
                         } else {
                             /* 长时间丢线：低速搜索 */
-                            dynamicBaseSpeed = 110.0f;
+                            dynamicBaseSpeed = 120.0f;
                         }
                         logFlags |= 0x10U; /* bit4: 丢线降速 */
                     }
 
+                    /* OLED gap 后误差限速：
+                     * gap期间车身物理移动，误差可能跳变很大
+                     * 如果不限速，P项直接响应跳变 → 方向翻转 → 乱拐弯
+                     * 限制每gap帧最大变化量4，且禁止大误差时符号翻转
+                     */
+                    if (dt > 0.015f && lostLineFrames == 0) {
+                        float errDiff = trackError - lastTrackError;
+                        if (errDiff > 4.0f)  trackError = lastTrackError + 4.0f;
+                        if (errDiff < -4.0f) trackError = lastTrackError - 4.0f;
+                        /* 防止符号翻转：误差>1.5时不允许跳过零点 */
+                        if (lastTrackError >  1.5f && trackError < 0.0f) trackError = 0.5f;
+                        if (lastTrackError < -1.5f && trackError > 0.0f) trackError = -0.5f;
+                        logFlags |= 0x20U; /* bit5: OLED gap 误差限速 */
+                    }
+
                     /* PD计算 */
                     dErr = (trackError - lastTrackError) / dt;
-                    /* 限制微分项，防止噪声放大 */
-                    /* 传感器误差量化步长=1, dt=0.002s, 正常dErr=500
-                     * 限幅要小！否则D项尖峰远超P项导致摇摆
-                     * clamp=10: 最大D贡献=0.8*10=8, 与P项(8*1=8)匹配
+
+                    /* OLED gap 期间 dt 远大于正常 2ms，D 项计算不可靠
+                     * dt > 15ms 说明经历了 OLED 刷新，抑制 D 项避免尖峰抖动
                      */
-                    if (dErr > 10.0f) dErr = 10.0f;
-                    if (dErr < -10.0f) dErr = -10.0f;
+                    if (dt > 0.015f) {
+                        dErr = 0.0f;
+                    }
+
+                    /* 限制微分项，防止噪声放大
+                     * clamp=15: 竞速模式需更大D项空间，最大D贡献=2.5*15=37.5
+                     */
+                    if (dErr > 15.0f) dErr = 15.0f;
+                    if (dErr < -15.0f) dErr = -15.0f;
 
                     turnOutput = dynamicKp * trackError + TRACK_KD * dErr;
                     lastTrackError = trackError;
 
-                    /* 转向限幅：丢线时需要足够转向力搜索 */
+                    /* 转向限幅：竞速模式需更大转向空间 */
                     {
-                        float turnLimit = 300.0f;
+                        float turnLimit = 400.0f;
                         if (lostLineFrames > 0) {
-                            turnLimit = 220.0f; /* 丢线搜索: 180太小转不回来，提高到220 */
+                            if (lostLineFrames <= 30) {
+                                /* 丢线前期(60ms)：最大转向，紧凑搜索弧线
+                                 * 锐角弯后惯性大，必须快速旋转才能找回线
+                                 * 400的turnOut + 180的dynBase → 外轮580, 内轮0 */
+                                turnLimit = 400.0f;
+                            } else {
+                                /* 丢线后期：适度降低，避免过度旋转 */
+                                turnLimit = 320.0f;
+                            }
                         }
                         if (turnOutput > turnLimit) {
                             turnOutput = turnLimit;
@@ -1478,8 +1621,11 @@ int main(void)
                 {
                     float minSpeed = MIN_SPEED_MMS;
 
-                    /* 丢线搜索/大误差：允许内侧轮降到 0，提高转向半径能力 */
-                    if (lostLineFrames > 0 || ABSF(trackError) > 8.0f) {
+                    /* 丢线搜索/中大误差：允许内侧轮降到 0，提高转向能力
+                     * 直角弯初期err=5-7时内侧轮还在推着走，转不过去
+                     * 降低阈值从8到5，让直角弯一侧触发时内侧轮及时刹停
+                     */
+                    if (lostLineFrames > 0 || ABSF(trackError) > 5.0f) {
                         minSpeed = 0.0f;
                     }
 
@@ -1527,13 +1673,13 @@ int main(void)
 #endif  /* SPEED_LOOP_TUNING */
         }
         
-        /* OLED 分帧刷新：每次只刷 1 行，阻塞约 120ms 而非 540ms
-         * 4 行轮流刷，间隔 300ms，完整刷一轮 = 1200ms
-         * 关键改进：消除 540ms 控制盲区！
+        /* OLED 分帧刷新：每次只刷 1 行，阻塞约 120ms
+         * 4 行轮流刷，间隔 500ms，完整刷一轮 = 2000ms
+         * 增大间隔以减少 gap 频率，给锐角弯更多连续控制时间
          */
         {
             static uint8_t oledLine = 0;
-            if ((nowMs - lastOledMs) >= 300)
+            if ((nowMs - lastOledMs) >= 800)  /* 竞速：降低OLED频率，减少gap影响 */
             {
                 lastOledMs = nowMs;
 #if SPEED_LOOP_TUNING
