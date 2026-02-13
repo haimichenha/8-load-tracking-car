@@ -29,5 +29,3 @@
 .\objects\hcsr04.o: .\Library\stm32f10x_usart.h
 .\objects\hcsr04.o: .\Library\stm32f10x_wwdg.h
 .\objects\hcsr04.o: .\Library\misc.h
-.\objects\hcsr04.o: .\System\Delay.h
-.\objects\hcsr04.o: Hardware\bsp_systick.h

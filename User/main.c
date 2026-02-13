@@ -822,6 +822,8 @@ int main(void)
 /*==================== 辅助宏 ====================*/
 #define ABSF(x)             (((x) >= 0.0f) ? (x) : -(x))
 
+#define DISPLAY_PAGES       2
+
 /*==================== 日志缓冲系统 ====================*/
 /* 运行时存到RAM，停下来后通过串口导出
  * 每条日志 8 字节，可存约 2000 条（约 20 秒 @ 10ms周期）
@@ -1172,7 +1174,14 @@ int main(void)
     KeyEvent_t keyEvent;
     Key2Event_t key2Event;
     uint8_t running = 0;
-    
+    uint8_t displayPage = 0;
+    uint32_t c5PressStartMs = 0;
+    uint8_t c5Pressing = 0;
+    /* LED 亮度档位 (PWM周期=50, 值域0-50): 48/30/15/3 */
+    static const uint8_t ledBrightTable[] = {48, 30, 15, 3};
+    uint8_t ledBrightIdx = 0;
+    uint32_t lastPeriphMs = 0;
+
     float speedL = 0, speedR = 0;
     float targetL = 0, targetR = 0;
     
@@ -1197,7 +1206,13 @@ int main(void)
     UART4_Send_String("#BOOT\r\n");
 #endif
     Delay_ms(100);
-    
+
+    /* LED PWM (TIM6 自驱动) + 蜂鸣器 */
+    LED_PWM_Init();
+    LED_Switch(LED_GREEN, 1);
+    LED_Switch(LED_RED, 1);
+    Buzzer_Init();
+
     /* 电机和编码器 */
     Set_Motor(0);
     Encoder_Init();
@@ -1214,80 +1229,116 @@ int main(void)
     OLED_ShowString(3, 1, "PC5=Start/Stop");
     OLED_ShowString(4, 1, "PC4=Emergency");
 #else
-    OLED_ShowString(1, 1, "V6 Clean");
-    OLED_ShowString(2, 1, "SpdPI+TrackPD");
-    OLED_ShowString(3, 1, "C5=Run/Stop");
-    OLED_ShowString(4, 1, "C4=Stop+Export");
+    OLED_ShowString(1, 1, "V7 Track+Obs");
+    OLED_ShowString(2, 1, "650mm/s GPIO");
+    OLED_ShowString(3, 1, "C5L:Start/Stop");
+    OLED_ShowString(4, 1, "C5S:Page C4:Stp");
+    Buzzer_PlayBeep(BEEP_STARTUP);
 #endif
     
     lastControlMs = SysTick_GetMs();
     lastEncoderMs = lastControlMs;
     lastOledMs = lastControlMs;
     s_lastUltrasonicMs = lastControlMs;
-    
+    lastPeriphMs = lastControlMs;
+
     while (1)
     {
         uint32_t nowMs = SysTick_GetMs();
         
         loopCount++;
-        
-        /* 按键扫描 */
+
+        /* 按键扫描 — Key2 由 TIM1 ISR 每1ms扫描，此处仅读取事件 */
         keyEvent = Key_Scan();
-        Key2_Scan();
         key2Event = Key2_GetEvent();
         if (key2Event != KEY2_EVENT_NONE) Key2_ClearEvent();
-        
-        /* PC4 = 紧急停止 + 导出日志 */
-        if (key2Event == KEY2_EVENT_SHORT || key2Event == KEY2_EVENT_LONG) {
-            Motor_SetSpeedBoth(0, 0);
-            running = 0;
-            s_pwmL = 0; s_pwmR = 0;
-            PI_Reset(&s_piL);
-            PI_Reset(&s_piR);
-            s_speedFiltInit = 0;
-            Obs_Reset();
-#if LOG_ENABLE
-            Log_Stop();
-            OLED_Clear();
-            {
-                char buf[32];
-                sprintf(buf, "T%u %u entries", s_testNum, s_logIndex);
-                OLED_ShowString(1, 1, buf);
+
+        /* C5 按压追踪 — running 时跳过 */
+        if (!running) {
+            if (Key_GetLevel() == 0) {
+                if (!c5Pressing) { c5PressStartMs = nowMs; c5Pressing = 1; }
+            } else {
+                c5Pressing = 0;
             }
-            OLED_ShowString(2, 1, "Exporting...");
-            Log_Export();
-            OLED_ShowString(3, 1, "Done!");
-            OLED_ShowString(4, 1, "C5=NewTest");
-            /* 不清空缓冲区：下次C5会追加，下次C4会导出全部 */
+        }
+
+        /* PC4 按键处理 */
+        if (running) {
+            /* 运行中: 任意按 = 紧急停止 */
+            if (key2Event == KEY2_EVENT_SHORT || key2Event == KEY2_EVENT_LONG) {
+                Motor_SetSpeedBoth(0, 0);
+                running = 0;
+                s_pwmL = 0; s_pwmR = 0;
+                PI_Reset(&s_piL);
+                PI_Reset(&s_piR);
+                s_speedFiltInit = 0;
+                Obs_Reset();
+                TIM_Cmd(TIM6, ENABLE);
+                LED_Switch(LED_GREEN, 1);
+                LED_Switch(LED_RED, 1);
+                Buzzer_PlayBeep(BEEP_KEY_PRESS);
+#if LOG_ENABLE
+                Log_Stop();
 #endif
+            }
+        } else {
+            /* 待机: 短按或长按都循环LED亮度档位 */
+            if (key2Event == KEY2_EVENT_SHORT || key2Event == KEY2_EVENT_LONG) {
+                ledBrightIdx = (ledBrightIdx + 1) % (sizeof(ledBrightTable)/sizeof(ledBrightTable[0]));
+                LED_SetBrightness(LED_GREEN, ledBrightTable[ledBrightIdx]);
+                LED_SetBrightness(LED_RED,   ledBrightTable[ledBrightIdx]);
+            }
         }
         
-        /* PC5 = 开始/停止 */
-        if (keyEvent == KEY_EVENT_SHORT) {
+        /* C5 短按=切页 (仅待机), C5 长按=启停 */
+        if (keyEvent == KEY_EVENT_SHORT && !running) {
+            displayPage = (displayPage + 1) % DISPLAY_PAGES;
+            OLED_Clear();
+        }
+        if (keyEvent == KEY_EVENT_LONG) {
             running = running ? 0 : 1;
-            if (!running) {
+            if (running) {
+                /* 启动 */
+                Buzzer_PlayBeep(BEEP_ACTIVATE);
+                LED_Switch(LED_GREEN, 0);
+                LED_Switch(LED_RED, 0);
+                LED_Switch(LED_INDICATOR, 0);
+                TIM_Cmd(TIM6, DISABLE);
+                s_piL.integral = 150.0f;
+                s_piR.integral = 150.0f;
+                s_speedFiltInit = 0;
+                s_runStartMs = nowMs;
+                s_finishVoteCnt = 0;
+                Obs_Reset();
+#if LOG_ENABLE
+                Log_Start(nowMs);
+#endif
+            } else {
+                /* 停止 */
                 Motor_SetSpeedBoth(0, 0);
                 s_pwmL = 0; s_pwmR = 0;
                 PI_Reset(&s_piL);
                 PI_Reset(&s_piR);
                 s_speedFiltInit = 0;
                 Obs_Reset();
+                TIM_Cmd(TIM6, ENABLE);
+                LED_Switch(LED_GREEN, 1);
+                LED_Switch(LED_RED, 1);
+                Buzzer_PlayBeep(BEEP_KEY_PRESS);
 #if LOG_ENABLE
                 Log_Stop();
 #endif
-            } else {
-                /* 启动：预填积分，加速启动 */
-                s_piL.integral = 150.0f;
-                s_piR.integral = 150.0f;
-                s_speedFiltInit = 0;
-                s_runStartMs = nowMs;   /* 记录启动时间，用于终点检测 */
-                s_finishVoteCnt = 0;    /* 重置终点投票 */
-                Obs_Reset();            /* 重置避障 */
-#if LOG_ENABLE
-                Log_Start(nowMs);  /* 追加模式：不清空，插入测试标记 */
-#endif
             }
             s_lastErr = 0;
+        }
+
+        /* 低频外设更新 — running 100ms 仅蜂鸣器, 待机 20ms */
+        {
+            uint32_t periphInterval = running ? 100 : 20;
+            if ((nowMs - lastPeriphMs) >= periphInterval) {
+                Buzzer_Update(nowMs - lastPeriphMs);
+                lastPeriphMs = nowMs;
+            }
         }
 
         /* ===== 超声波非阻塞轮询 + 避障状态机 ===== */
@@ -1450,7 +1501,7 @@ int main(void)
                  */
                 if (count == 8 && (nowMs - s_runStartMs) > 5000) {
                     s_finishVoteCnt++;
-                    if (s_finishVoteCnt >= 20) {
+                    if (s_finishVoteCnt >= 40) {
                         /* 终点！停车 */
                         Motor_SetSpeedBoth(0, 0);
                         running = 0;
@@ -1458,20 +1509,25 @@ int main(void)
                         PI_Reset(&s_piL);
                         PI_Reset(&s_piR);
                         Obs_Reset();
+                        /* 恢复 LED 后播终点效果 */
+                        TIM_Cmd(TIM6, ENABLE);
+                        LED_Switch(LED_GREEN, 1);
+                        LED_Switch(LED_RED, 1);
+                        Buzzer_BeepTriple();
+                        LED_StartFinishEffect();
 #if LOG_ENABLE
                         Log_Stop();
+#endif
                         OLED_Clear();
                         OLED_ShowString(1, 1, "FINISH!");
                         {
-                            char buf[32];
-                            sprintf(buf, "Time: %.1fs",
+                            char tbuf[24];
+                            sprintf(tbuf, "Time: %.1fs",
                                     (float)(nowMs - s_runStartMs) / 1000.0f);
-                            OLED_ShowString(2, 1, buf);
-                            sprintf(buf, "T%u %u entries", s_testNum, s_logIndex);
-                            OLED_ShowString(3, 1, buf);
+                            OLED_ShowString(2, 1, tbuf);
                         }
-                        OLED_ShowString(4, 1, "C4=Export");
-#endif
+                        OLED_ShowString(3, 1, "Well Done!");
+                        OLED_ShowString(4, 1, "C5L=Restart");
                         continue;
                     }
                 } else {
@@ -1557,7 +1613,7 @@ int main(void)
                         } else {
                             /* 反方向：累计确认 */
                             s_dirFlipCnt++;
-                            if (s_dirFlipCnt >= 5) {
+                            if (s_dirFlipCnt >= 6) {
                                 s_lastDir = curDir;
                                 s_dirFlipCnt = 0;
                                 /* 翻转时标记置信度 */
@@ -1605,7 +1661,7 @@ int main(void)
                      */
                     if (absErr > 1.5f) {
                         float speedFactor = 1.0f - (absErr - 1.5f) * 0.065f;
-                        if (speedFactor < 0.15f) speedFactor = 0.15f;
+                        if (speedFactor < 0.12f) speedFactor = 0.12f;
                         dynamicBaseSpeed *= speedFactor;
                     }
 
@@ -1616,9 +1672,9 @@ int main(void)
                      */
                     if (dt < 0.015f && lostLineFrames == 0) {
                         float errDelta = ABSF(trackError - lastTrackError);
-                        if (errDelta > 2.5f && absErr > 2.0f) {
-                            float decelExtra = 1.0f - (errDelta - 2.5f) * 0.15f;
-                            if (decelExtra < 0.45f) decelExtra = 0.45f;
+                        if (errDelta > 2.0f && absErr > 1.5f) {
+                            float decelExtra = 1.0f - (errDelta - 2.0f) * 0.15f;
+                            if (decelExtra < 0.40f) decelExtra = 0.40f;
                             dynamicBaseSpeed *= decelExtra;
                         }
                     }
@@ -1674,16 +1730,16 @@ int main(void)
 
                     /* 转向限幅：竞速模式需更大转向空间 */
                     {
-                        float turnLimit = 400.0f;
+                        float turnLimit = 420.0f;
                         if (lostLineFrames > 0) {
                             if (lostLineFrames <= 30) {
                                 /* 丢线前期(60ms)：最大转向，紧凑搜索弧线
                                  * 锐角弯后惯性大，必须快速旋转才能找回线
                                  * 400的turnOut + 180的dynBase → 外轮580, 内轮0 */
-                                turnLimit = 400.0f;
+                                turnLimit = 420.0f;
                             } else {
                                 /* 丢线后期：适度降低，避免过度旋转 */
-                                turnLimit = 320.0f;
+                                turnLimit = 340.0f;
                             }
                         }
                         if (turnOutput > turnLimit) {
@@ -1783,57 +1839,83 @@ int main(void)
 #endif  /* SPEED_LOOP_TUNING */
         }
         
-        /* OLED 分帧刷新：每次只刷 1 行，阻塞约 120ms
-         * 4 行轮流刷，间隔 500ms，完整刷一轮 = 2000ms
-         * 增大间隔以减少 gap 频率，给锐角弯更多连续控制时间
-         */
+        /* OLED 分帧刷新 — running 1000ms, 待机 800ms */
         {
             static uint8_t oledLine = 0;
-            if ((nowMs - lastOledMs) >= 800)  /* 竞速：降低OLED频率，减少gap影响 */
+            uint8_t c5Held = !running && c5Pressing && ((nowMs - c5PressStartMs) > 50);
+            uint32_t oledInterval = c5Held ? 150 : (running ? 1000 : 800);
+
+            if ((nowMs - lastOledMs) >= oledInterval)
             {
                 lastOledMs = nowMs;
-#if SPEED_LOOP_TUNING
-                switch (oledLine) {
-                case 0: sprintf(buf, "Tgt:%3.0f mm/s", TEST_TARGET_SPEED);
-                        OLED_ShowString(1, 1, buf); break;
-                case 1: sprintf(buf, "L:%3.0f R:%3.0f", s_speedL_f, s_speedR_f);
-                        OLED_ShowString(2, 1, buf); break;
-                case 2: sprintf(buf, "PWM L%2.0f R%2.0f", s_pwmL, s_pwmR);
-                        OLED_ShowString(3, 1, buf); break;
-                case 3: sprintf(buf, "Kp%.2f Ki%.3f", SPEED_KP, SPEED_KI);
-                        OLED_ShowString(4, 1, buf); break;
-                }
-#else
-                switch (oledLine) {
-                case 0: sprintf(buf, "E:%+3d Spd%3.0f", s_lastErr, (s_speedL_f + s_speedR_f) / 2);
-                        OLED_ShowString(1, 1, buf); break;
-                case 1: sprintf(buf, "Tgt%3.0f/%3.0f", targetL, targetR);
-                        OLED_ShowString(2, 1, buf); break;
-                case 2: sprintf(buf, "PWM%2.0f/%2.0f", s_pwmL, s_pwmR);
-                        OLED_ShowString(3, 1, buf); break;
-                case 3: {
+
+                if (c5Held) {
+                    /* C5 按压进度条 */
+                    uint32_t pt = nowMs - c5PressStartMs;
+                    uint8_t filled = (uint8_t)(pt * 8 / KEY_LONG_TIME);
+                    uint8_t j;
+                    if (filled > 8) filled = 8;
+                    buf[0] = '[';
+                    for (j = 0; j < 8; j++)
+                        buf[1 + j] = (j < filled) ? '=' : ' ';
+                    buf[9] = ']';
+                    sprintf(buf + 10, " %u.%us",
+                            (unsigned)(pt / 1000),
+                            (unsigned)((pt % 1000) / 100));
+                    OLED_ShowString(1, 1, buf);
+                } else if (displayPage == 0) {
+                    /* 页面0: 循迹实时 */
+                    switch (oledLine) {
+                    case 0: sprintf(buf, "E:%+3d Spd%3.0f", s_lastErr,
+                                    (s_speedL_f + s_speedR_f) / 2);
+                            OLED_ShowString(1, 1, buf); break;
+                    case 1: sprintf(buf, "Tgt%3.0f/%3.0f", targetL, targetR);
+                            OLED_ShowString(2, 1, buf); break;
+                    case 2: sprintf(buf, "PWM%2.0f/%2.0f", s_pwmL, s_pwmR);
+                            OLED_ShowString(3, 1, buf); break;
+                    case 3:
                         if (s_obsState == OBS_AVOID) {
                             sprintf(buf, "OBS%4.1fcm %c  ",
                                     s_obsDist, s_obsTurnDir > 0 ? 'R' : 'L');
-                        } else if (s_obsState == OBS_WARNING) {
-                            sprintf(buf, "W %4.1fcm     ", s_obsDist);
                         } else {
-                            uint8_t active = (uint8_t)(~ir_raw);
-                            char sensorStr[9];
-                            int si;
-                            for (si = 0; si < 8; si++) {
-                                sensorStr[si] = (active & (1 << (7-si))) ? '*' : '-';
-                            }
-                            sensorStr[8] = '\0';
-                            sprintf(buf, "%s", sensorStr);
+                            uint8_t act = (uint8_t)(~ir_raw);
+                            char ss[9]; int si;
+                            for (si = 0; si < 8; si++)
+                                ss[si] = (act & (1 << (7-si))) ? '*' : '-';
+                            ss[8] = '\0';
+                            sprintf(buf, "%s %s", ss, running ? "RUN" : "STP");
                         }
-                        OLED_ShowString(4, 1, buf);
-                    } break;
+                        OLED_ShowString(4, 1, buf); break;
+                    }
+                    oledLine = (oledLine + 1) & 3;
+                } else {
+                    /* 页面1: 参数 */
+                    switch (oledLine) {
+                    case 0: sprintf(buf, "Kp%.1f Kd%.1f", TRACK_KP, TRACK_KD);
+                            OLED_ShowString(1, 1, buf); break;
+                    case 1: sprintf(buf, "Base:%3.0f mm/s", BASE_SPEED_MMS);
+                            OLED_ShowString(2, 1, buf); break;
+                    case 2: {
+                            float runSec = running ?
+                                (float)(nowMs - s_runStartMs) / 1000.0f : 0.0f;
+                            sprintf(buf, "T:%.1fs %s  ", runSec,
+                                    running ? "GO" : "STOP");
+                            OLED_ShowString(3, 1, buf);
+                            } break;
+                    case 3:
+                        if (s_obsDist > 0.0f)
+                            sprintf(buf, "US:%.1fcm      ", s_obsDist);
+                        else
+                            sprintf(buf, "US:---         ");
+                        OLED_ShowString(4, 1, buf); break;
+                    }
+                    oledLine = (oledLine + 1) & 3;
                 }
-#endif  /* SPEED_LOOP_TUNING */
-                oledLine = (oledLine + 1) & 3;
             }
         }
+
+        /* running 时 1ms 节流至 ~1kHz */
+        if (running) Delay_ms(1);
     }
 }
 
