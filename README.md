@@ -142,3 +142,95 @@
 - 每条记录包含：序号、测试编号、时间戳、循迹误差、传感器原始值、左右轮 PWM/速度/目标速度、控制标志位、饱和信息、动态 Kp 倍率等 22 个字段
 - 支持多次测试标记（testId），方便分段分析
 - 可通过宏 `LOG_ENABLE` 开关日志功能
+
+---
+
+## 项目结构
+
+### 1. 主控入口与调度：`User/main.c`
+
+`main.c` 是当前 V7 版本唯一的运行主流程入口，负责：
+
+- 系统初始化与启动音效
+- 按键事件处理（PC5 启停/切页，PC4 急停/亮度档位）
+- 2ms 高频控制环（循迹 PD 外环 + 速度 PI 内环）
+- 超声波避障状态机
+- OLED 双页面渲染
+- 运行日志记录
+
+关键时序（主循环内）：
+
+- **控制环**：`2ms`（`if ((nowMs - lastControlMs) >= 2)`）
+- **超声波触发**：`60ms`（`OBS_PERIOD_MS`）
+- **外设更新**：运行 `100ms` / 待机 `20ms`
+- **OLED 刷新**：运行 `1000ms` / 待机 `800ms` / 长按提示 `150ms`
+- **运行态节流**：每圈 `Delay_ms(1)`
+
+`main()` 主流程拆解：
+
+1. **初始化阶段**：`SysTick/按键/红外/超声波/OLED/UART4/LED_PWM/蜂鸣器/电机编码器/PI参数` 依次初始化
+2. **待机阶段**：允许切页与亮度档位调整，电机保持停止
+3. **启动阶段**：PC5 长按进入运行，清零里程/计时/滤波/状态机并打日志分隔标记
+4. **运行阶段**：
+   - 读取传感器并计算误差（含丢线恢复、终点投票、方向记忆）
+   - 计算动态 `Kp` 与动态基础速度
+   - 外环 PD 生成转向量，内环 PI 生成左右 PWM
+   - 电机输出 + OLED 刷新 + 日志采样
+5. **停止阶段**：急停/终点触发后，停止电机并导出日志
+
+### 2. 功能-文件映射（当前主流程）
+
+| 模块 | 主要文件 | 关键实现 | 参数/依据 |
+|------|----------|----------|-----------|
+| 循迹采集 | `Hardware/bsp_ir_gpio.c/.h` | `IR_GPIO_Init`、`IR_GPIO_Read` | GPIOF 8路引脚映射（PF1-PF4, PF6-PF9） |
+| 循迹控制 | `User/main.c` | 加权误差、丢线恢复、交叉抑制、动态 Kp、PD 转向 | `SENSOR_WEIGHTS_V5`、`TRACK_KP/KD` |
+| 速度环 | `User/main.c` | `PI_Init`、`PI_Compute`、目标速度合成、PWM 输出 | `SPEED_KP/KI`、`INTEGRAL_MAX`、`PWM_MAX/MIN` |
+| 电机驱动 | `Hardware/bsp_motor.c/.h` | `Motor_SetSpeedBoth`、方向与PWM映射 | TB6612 管脚与 20kHz PWM |
+| 编码器测速 | `Hardware/bsp_encoder.c/.h` | `Encoder_Init`、`Encoder_Update`、`Encoder_GetSpeedMMS` | 11PPR × 20 × 4 倍频、轮径48mm |
+| 超声波避障 | `Hardware/HCSR04.c/.h` + `User/main.c` | `HCSR04_Poll`、`HCSR04_StartMeasure`、状态机接管 | `OBS_WARN_CM/OBS_AVOID_CM/OBS_EXIT_CM` |
+| OLED 显示 | `Hardware/OLED.c/.h` + `User/main.c` | `OLED_ShowString` 分帧刷新，双页面显示 | `DISPLAY_PAGES=2`，按状态切页 |
+| 按键输入 | `Hardware/bsp_key.c/.h`、`bsp_key2.c/.h` | `Key_Scan`、`Key2_GetEvent` | C5短/长按与 C4 事件分离 |
+| LED 指示 | `Hardware/bsp_led_pwm.c/.h` | `LED_PWM_Init`、`LED_SetBrightness`、`LED_StartFinishEffect` | 待机4档亮度、终点灯效 |
+| 蜂鸣器 | `Hardware/bsp_buzzer.c/.h` | `Buzzer_PlayBeep`、`Buzzer_BeepTriple`、`Buzzer_Update` | 启动/激活/急停/终点提示 |
+| 串口日志 | `User/main.c` + `Hardware/bsp_usart.c/.h` | `Log_Add`、`Log_Start/Stop`、`Log_Export`、`UART4_Send_String` | `LOG_ENABLE`、`LOG_PERIOD_MS`、`LOG_MAX_ENTRIES` |
+
+### 2.1 重点文件补充说明（你关心的模块）
+
+- `Hardware/bsp_led_pwm.c/.h`：当前 LED 主实现，负责三路亮度 PWM、亮度档位、终点灯效。
+- `Hardware/app_ui.c/.h`：历史 UI 页面框架（含陀螺仪页等），当前 V7 主流程未调用，现行显示逻辑在 `User/main.c` 内直接渲染。
+- `Hardware/app_motor.c/.h`：历史运动封装（`Motion_Car_Control`），当前 V7 主流程主要直接走 `bsp_motor + bsp_encoder + main.c 内 PI`。
+- `Hardware/bsp_encoder.c/.h`：编码器采样与速度/里程计算，给主循环速度环提供反馈。
+- `Hardware/bsp_ir_gpio.c/.h`：循迹输入底层，8 路 GPIO 快速读取。
+- `Hardware/bsp_buzzer.c/.h`：蜂鸣器音效状态机，主循环按周期调用 `Buzzer_Update`。
+- `Hardware/HCSR04.c/.h`：超声波非阻塞测距，主循环轮询并驱动避障状态切换。
+
+### 3. 参数集中位置（调参入口）
+
+当前版本参数集中在 `User/main.c` 顶部宏区，便于赛道调参：
+
+- **速度环参数**：`SPEED_KP`、`SPEED_KI`、`INTEGRAL_MAX`
+- **循迹参数**：`TRACK_KP`、`TRACK_KD`
+- **速度边界**：`BASE_SPEED_MMS`、`MIN_SPEED_MMS`、`MAX_SPEED_MMS`
+- **避障阈值**：`OBS_WARN_CM`、`OBS_AVOID_CM`、`OBS_EXIT_CM`
+- **日志参数**：`LOG_ENABLE`、`LOG_PERIOD_MS`、`LOG_MAX_ENTRIES`
+
+建议调参顺序：
+
+1. 先调速度环（确保左右轮可稳定跟踪目标）
+2. 再调循迹环（Kp 响应、Kd 抑振）
+3. 最后调避障阈值和基础速度
+
+### 4. 备用/历史模块说明（当前主流程未调用）
+
+以下文件在工程中仍可见，但**当前 V7 主流程未接入**：
+
+- `Hardware/app_ui.c/.h`：旧版多页面 UI 框架（含陀螺仪页）
+- `Hardware/app_control.c/.h`：旧版控制状态机框架（含陀螺仪输入接口）
+- `Hardware/JY301P.c/.h`、`wit_c_sdk.c/.h`：陀螺仪协议与解析
+- `Tracking/HW_I2C/app_irtracking/mpu6050` 等历史模块：旧方案残留
+
+---
+
+## 开发历程
+
+（待补充）
