@@ -41,12 +41,6 @@
  *   3. 加Kd抑制振荡，让过弯更丝滑
  */
 
-/*==================== 调试模式开关 ====================*/
-#define SPEED_LOOP_TUNING   0           /* 1=速度环调试模式, 0=正常循迹模式 */
-#define DEBUG_NO_KI         0           /* 1=关闭Ki调试, 0=正常（开启Ki） */
-#define DEBUG_OPEN_LOOP     0           /* 1=开环测试(直接给PWM), 0=闭环PI */
-#define DEBUG_FIXED_PWM     30.0f       /* 开环测试时的固定PWM值 */
-
 /*==================== 速度环参数（内环）====================*/
 /* MG310 电机动力很强，PWM=30 就能跑 650mm/s
  * Kp=0.18/Ki=0.12 在500mm/s时OK但320mm/s时PWM振荡(0~33跳动)
@@ -55,14 +49,7 @@
  */
 #define SPEED_KP            0.15f       /* 速度P - 折中值 */
 #define SPEED_KI            0.08f       /* 速度I - 竞速提高：更快跟踪高目标速度 */
-#define SPEED_KD            0.0f        /* 速度D - 不需要 */
 #define INTEGRAL_MAX        200.0f      /* 积分限幅 - 竞速放宽：高速需更大积分空间 */
-
-/*==================== 速度环调试目标速度 ====================*/
-/* 注意：PWM=30 对应约 650 mm/s，所以目标速度要合理设置
- * 目标速度太低会导致 PI 输出接近 0，产生间断振荡
- */
-#define TEST_TARGET_SPEED   500.0f      /* 测试目标速度 mm/s */
 
 /*==================== 循迹环参数（外环）====================*/
 /* 调试步骤：
@@ -90,16 +77,8 @@
 #define PWM_MAX             100.0f
 #define PWM_MIN             0.0f
 
-/*==================== 死区补偿 ====================*/
-/* 电机死区：PWM低于此值轮子不动
- * 注意：MG310 电机动力很强，PWM=30 就能跑 650mm/s
- * 死区补偿不能太大，否则会导致间断振荡
- */
-#define MOTOR_DEADZONE      1.5f        /* 死区PWM值 - 改小！ */
-
 /*==================== 滤波参数 ====================*/
 #define SPEED_FILT_ALPHA    0.3f        /* 速度滤波 - 增大减少滞后 */
-#define ERROR_FILT_ALPHA    0.5f        /* 误差滤波 - 增大减少滞后 */
 
 /*==================== 辅助宏 ====================*/
 #define ABSF(x)             (((x) >= 0.0f) ? (x) : -(x))
@@ -414,25 +393,18 @@ static float PI_Compute(PI_t *pi, float target, float actual)
 {
     float err = target - actual;
     float out;
-    
-#if DEBUG_NO_KI
-    /* 调试模式：关闭Ki，只用Kp */
-    out = pi->Kp * err;
-#else
+
     /* 积分累加 - 注意：这里没有乘以dt，所以Ki要设得很小 */
     /* 控制周期是2ms，每秒累加500次 */
     pi->integral += err;
-    
+
     /* 积分限幅 - 防止积分饱和！ */
     if (pi->integral > pi->integralMax) pi->integral = pi->integralMax;
     if (pi->integral < -pi->integralMax) pi->integral = -pi->integralMax;
-    
+
     /* PI输出 */
     out = pi->Kp * err + pi->Ki * pi->integral;
-#endif
-    
-    /* 死区补偿已移除 - MG310电机动力强，不需要 */
-    
+
     /* 输出限幅 */
     if (out > pi->outMax) out = pi->outMax;
     if (out < pi->outMin) out = pi->outMin;
@@ -449,9 +421,7 @@ int main(void)
 {
     uint8_t ir_raw = 0xFF;
     uint32_t lastControlMs = 0;
-    uint32_t lastEncoderMs = 0;
     uint32_t lastOledMs = 0;
-    uint32_t loopCount = 0;
     char buf[24];
     KeyEvent_t keyEvent;
     Key2Event_t key2Event;
@@ -505,21 +475,13 @@ int main(void)
     PI_Init(&s_piR, SPEED_KP, SPEED_KI, INTEGRAL_MAX, PWM_MIN, PWM_MAX);
     
     OLED_Clear();
-#if SPEED_LOOP_TUNING
-    OLED_ShowString(1, 1, "SpeedLoop Test");
-    OLED_ShowString(2, 1, "Kp Ki Tuning");
-    OLED_ShowString(3, 1, "PC5=Start/Stop");
-    OLED_ShowString(4, 1, "PC4=Emergency");
-#else
     OLED_ShowString(1, 1, "V7 Track+Obs");
     OLED_ShowString(2, 1, "650mm/s GPIO");
     OLED_ShowString(3, 1, "C5L:Start/Stop");
     OLED_ShowString(4, 1, "C5S:Page C4:Stp");
     Buzzer_PlayBeep(BEEP_STARTUP);
-#endif
     
     lastControlMs = SysTick_GetMs();
-    lastEncoderMs = lastControlMs;
     lastOledMs = lastControlMs;
     s_lastUltrasonicMs = lastControlMs;
     lastPeriphMs = lastControlMs;
@@ -527,8 +489,6 @@ int main(void)
     while (1)
     {
         uint32_t nowMs = SysTick_GetMs();
-        
-        loopCount++;
 
         /* 按键扫描 — Key2 由 TIM1 ISR 每1ms扫描，此处仅读取事件 */
         keyEvent = Key_Scan();
@@ -703,44 +663,6 @@ int main(void)
                 continue;
             }
             
-#if SPEED_LOOP_TUNING
-            /*==================== 速度环调试模式 ====================*/
-            /* 屏蔽循迹，只做速度闭环
-             * 目标：两轮以相同速度直线行驶
-             * 调试：用手挡轮子，观察恢复能力
-             */
-            {
-                float spdL_filt, spdR_filt;
-                float pwmL, pwmR;
-                
-#if DEBUG_OPEN_LOOP
-                /* 开环测试：直接给固定PWM，不用PI控制 */
-                /* 用于排查是电机驱动问题还是PI控制问题 */
-                pwmL = DEBUG_FIXED_PWM;
-                pwmR = DEBUG_FIXED_PWM;
-                targetL = 0;  /* 开环模式下目标速度无意义 */
-                targetR = 0;
-#else
-                /* 固定目标速度 */
-                targetL = TEST_TARGET_SPEED;
-                targetR = TEST_TARGET_SPEED;
-                
-                /* 速度PI闭环 */
-                spdL_filt = s_speedFiltInit ? s_speedL_f : speedL;
-                spdR_filt = s_speedFiltInit ? s_speedR_f : speedR;
-                
-                pwmL = PI_Compute(&s_piL, targetL, spdL_filt);
-                pwmR = PI_Compute(&s_piR, targetR, spdR_filt);
-#endif
-                
-                /* 设置电机 */
-                Motor_SetSpeedBoth((int16_t)pwmL, (int16_t)pwmR);
-                
-                /* 更新显示变量 */
-                s_pwmL = pwmL;
-                s_pwmR = pwmR;
-            }
-#else
             /*==================== 串级控制：循迹PD(外环) + 速度PI(内环) ====================*/
             /* V7 极简版：砍掉所有复杂状态机，回归"看到线就跟"的核心
              * 原则：
@@ -1118,7 +1040,6 @@ int main(void)
                 }
 #endif
             }
-#endif  /* SPEED_LOOP_TUNING */
         }
         
         /* OLED 分帧刷新 — running 1000ms, 待机 800ms */
