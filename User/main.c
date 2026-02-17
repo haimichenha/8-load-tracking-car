@@ -85,6 +85,113 @@
 
 #define DISPLAY_PAGES       2
 
+/* 传感器权重 - 非线性分布（1,3,9,27模式）
+ * 边缘传感器权重更大，让弯道反应更激烈
+ * 线在左边 → 误差为负 → 左轮减速
+ * 线在右边 → 误差为正 → 右轮减速
+ */
+static const int8_t SENSOR_WEIGHTS_V5[8] = {
+    -12,    /* X1: 最左边 - 超大权重！ */
+    -8,    /* X2 */
+    -3,    /* X3 */
+    -1,     /* X4: 中心左 */
+    1,      /* X5: 中心右 */
+    3,     /* X6 */
+    8,     /* X7 */
+    12      /* X8: 最右边 - 超大权重！ */
+};
+
+/*==================== 速度PI结构体 ====================*/
+typedef struct {
+    float Kp, Ki;
+    float integral;
+    float integralMax;
+    float outMin, outMax;
+} PI_t;
+
+static PI_t s_piL, s_piR;           /* 左右轮速度PI */
+static float s_pwmL = 0, s_pwmR = 0; /* 当前PWM */
+static float s_speedL_f = 0, s_speedR_f = 0;  /* 滤波后速度 */
+static uint8_t s_speedFiltInit = 0;  /* 速度滤波初始化标志 */
+static int8_t s_lastDir = 1;         /* 上次方向：1=右，-1=左 */
+static uint8_t s_dirConfident = 0;   /* 方向置信度：1=来自|err|>=3的深弯，0=来自|err|<3的浅偏 */
+static int8_t s_lastErr = 0;         /* 上次误差（显示用） */
+static uint32_t s_runStartMs = 0;    /* 本次运行启动时刻 */
+static uint16_t s_finishVoteCnt = 0; /* 终点检测：连续全触发帧计数 */
+
+/*==================== 超声波避障 ====================*/
+/*
+ * 40cm 预警(不干涉), 20cm 介入(接管), 30cm 退出(迟滞)
+ * 梯度法: 下次距离 > 上次 → 方向正确; 反之翻转
+ * 有线时仅降速, 无线时转向避障
+ */
+#define OBS_PERIOD_MS       60      /* 测量周期 ms */
+#define OBS_WARN_CM         40.0f
+#define OBS_AVOID_CM        20.0f
+#define OBS_EXIT_CM         30.0f   /* 退出迟滞 */
+#define OBS_SPEED_FLOOR     0.25f   /* 最低速度比 */
+#define OBS_TURN_BASE       180.0f  /* 避障基础转向 */
+#define OBS_FILT_ALPHA      0.4f    /* 距离一阶滤波 */
+#define OBS_DIR_DEADBAND    1.0f    /* 梯度翻转死区 cm */
+#define OBS_DIR_LOCK_CNT    2       /* 翻转后锁定次数 */
+
+typedef enum { OBS_NONE = 0, OBS_WARNING, OBS_AVOID } ObsState_t;
+
+static ObsState_t s_obsState      = OBS_NONE;
+static float      s_obsDist       = -1.0f;   /* 滤波后距离 */
+static float      s_obsPrevDist   = -1.0f;   /* 上次距离(梯度用) */
+static int8_t     s_obsTurnDir    = 0;        /* +1 右转, -1 左转 */
+static uint8_t    s_obsDirLock    = 0;        /* 方向锁定倒计数 */
+static uint32_t   s_lastUltrasonicMs = 0;
+
+static void Obs_Reset(void)
+{
+    s_obsState    = OBS_NONE;
+    s_obsDist     = -1.0f;
+    s_obsPrevDist = -1.0f;
+    s_obsTurnDir  = 0;
+    s_obsDirLock  = 0;
+}
+
+/*==================== PI函数 ====================*/
+static void PI_Init(PI_t *pi, float kp, float ki, float intMax, float outMin, float outMax)
+{
+    pi->Kp = kp;
+    pi->Ki = ki;
+    pi->integral = 0;
+    pi->integralMax = intMax;
+    pi->outMin = outMin;
+    pi->outMax = outMax;
+}
+
+static float PI_Compute(PI_t *pi, float target, float actual)
+{
+    float err = target - actual;
+    float out;
+
+    /* 积分累加 - 注意：这里没有乘以dt，所以Ki要设得很小 */
+    /* 控制周期是2ms，每秒累加500次 */
+    pi->integral += err;
+
+    /* 积分限幅 - 防止积分饱和！ */
+    if (pi->integral > pi->integralMax) pi->integral = pi->integralMax;
+    if (pi->integral < -pi->integralMax) pi->integral = -pi->integralMax;
+
+    /* PI输出 */
+    out = pi->Kp * err + pi->Ki * pi->integral;
+
+    /* 输出限幅 */
+    if (out > pi->outMax) out = pi->outMax;
+    if (out < pi->outMin) out = pi->outMin;
+    
+    return out;
+}
+
+static void PI_Reset(PI_t *pi)
+{
+    pi->integral = 0;
+}
+
 /*==================== 日志缓冲系统 ====================*/
 /* 运行时存到RAM，停下来后通过串口导出
  * 每条日志 8 字节，可存约 2000 条（约 20 秒 @ 10ms周期）
@@ -309,113 +416,6 @@ static void Log_Export(void)
     UART4_Send_String("#LOG_END\r\n");
 }
 #endif /* LOG_ENABLE */
-
-/* 传感器权重 - 非线性分布（1,3,9,27模式）
- * 边缘传感器权重更大，让弯道反应更激烈
- * 线在左边 → 误差为负 → 左轮减速
- * 线在右边 → 误差为正 → 右轮减速
- */
-static const int8_t SENSOR_WEIGHTS_V5[8] = {
-    -12,    /* X1: 最左边 - 超大权重！ */
-    -8,    /* X2 */
-    -3,    /* X3 */
-    -1,     /* X4: 中心左 */
-    1,      /* X5: 中心右 */
-    3,     /* X6 */
-    8,     /* X7 */
-    12      /* X8: 最右边 - 超大权重！ */
-};
-
-/*==================== 速度PI结构体 ====================*/
-typedef struct {
-    float Kp, Ki;
-    float integral;
-    float integralMax;
-    float outMin, outMax;
-} PI_t;
-
-static PI_t s_piL, s_piR;           /* 左右轮速度PI */
-static float s_pwmL = 0, s_pwmR = 0; /* 当前PWM */
-static float s_speedL_f = 0, s_speedR_f = 0;  /* 滤波后速度 */
-static uint8_t s_speedFiltInit = 0;  /* 速度滤波初始化标志 */
-static int8_t s_lastDir = 1;         /* 上次方向：1=右，-1=左 */
-static uint8_t s_dirConfident = 0;   /* 方向置信度：1=来自|err|>=3的深弯，0=来自|err|<3的浅偏 */
-static int8_t s_lastErr = 0;         /* 上次误差（显示用） */
-static uint32_t s_runStartMs = 0;    /* 本次运行启动时刻 */
-static uint16_t s_finishVoteCnt = 0; /* 终点检测：连续全触发帧计数 */
-
-/*==================== 超声波避障 ====================*/
-/*
- * 40cm 预警(不干涉), 20cm 介入(接管), 30cm 退出(迟滞)
- * 梯度法: 下次距离 > 上次 → 方向正确; 反之翻转
- * 有线时仅降速, 无线时转向避障
- */
-#define OBS_PERIOD_MS       60      /* 测量周期 ms */
-#define OBS_WARN_CM         40.0f
-#define OBS_AVOID_CM        20.0f
-#define OBS_EXIT_CM         30.0f   /* 退出迟滞 */
-#define OBS_SPEED_FLOOR     0.25f   /* 最低速度比 */
-#define OBS_TURN_BASE       180.0f  /* 避障基础转向 */
-#define OBS_FILT_ALPHA      0.4f    /* 距离一阶滤波 */
-#define OBS_DIR_DEADBAND    1.0f    /* 梯度翻转死区 cm */
-#define OBS_DIR_LOCK_CNT    2       /* 翻转后锁定次数 */
-
-typedef enum { OBS_NONE = 0, OBS_WARNING, OBS_AVOID } ObsState_t;
-
-static ObsState_t s_obsState      = OBS_NONE;
-static float      s_obsDist       = -1.0f;   /* 滤波后距离 */
-static float      s_obsPrevDist   = -1.0f;   /* 上次距离(梯度用) */
-static int8_t     s_obsTurnDir    = 0;        /* +1 右转, -1 左转 */
-static uint8_t    s_obsDirLock    = 0;        /* 方向锁定倒计数 */
-static uint32_t   s_lastUltrasonicMs = 0;
-
-static void Obs_Reset(void)
-{
-    s_obsState    = OBS_NONE;
-    s_obsDist     = -1.0f;
-    s_obsPrevDist = -1.0f;
-    s_obsTurnDir  = 0;
-    s_obsDirLock  = 0;
-}
-
-/*==================== PI函数 ====================*/
-static void PI_Init(PI_t *pi, float kp, float ki, float intMax, float outMin, float outMax)
-{
-    pi->Kp = kp;
-    pi->Ki = ki;
-    pi->integral = 0;
-    pi->integralMax = intMax;
-    pi->outMin = outMin;
-    pi->outMax = outMax;
-}
-
-static float PI_Compute(PI_t *pi, float target, float actual)
-{
-    float err = target - actual;
-    float out;
-
-    /* 积分累加 - 注意：这里没有乘以dt，所以Ki要设得很小 */
-    /* 控制周期是2ms，每秒累加500次 */
-    pi->integral += err;
-
-    /* 积分限幅 - 防止积分饱和！ */
-    if (pi->integral > pi->integralMax) pi->integral = pi->integralMax;
-    if (pi->integral < -pi->integralMax) pi->integral = -pi->integralMax;
-
-    /* PI输出 */
-    out = pi->Kp * err + pi->Ki * pi->integral;
-
-    /* 输出限幅 */
-    if (out > pi->outMax) out = pi->outMax;
-    if (out < pi->outMin) out = pi->outMin;
-    
-    return out;
-}
-
-static void PI_Reset(PI_t *pi)
-{
-    pi->integral = 0;
-}
 
 int main(void)
 {
