@@ -1,0 +1,45 @@
+# ===== Keil uVision 编译产物 =====
+Objects/
+Listings/
+build/
+DebugConfig/
+RTE/
+
+# Keil 用户界面配置（每人不同）
+*.uvguix.*
+*.bak
+*.dep
+*.d
+*.o
+*.axf
+*.hex
+*.bin
+*.map
+*.lst
+*.i
+*.crf
+*.htm
+*.lnp
+*.sct
+
+# ===== 调试/临时文件 =====
+*.log
+build_log.txt
+temp_*.c
+temp_*.h
+JLinkLog.txt
+EventRecorderStub.scvd
+
+# ===== IDE 配置 =====
+.vscode/
+.settings/
+
+# ===== 系统文件 =====
+Thumbs.db
+.DS_Store
+desktop.ini
+
+# ===== 大型参考文件（不适合 Git 管理）=====
+*.pdf
+*.pptx
+*.xlsx
