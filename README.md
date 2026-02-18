@@ -227,8 +227,6 @@
 - `Hardware/app_ui.c/.h`：旧版多页面 UI 框架（含陀螺仪页）
 - `Hardware/app_control.c/.h`：旧版控制状态机框架（含陀螺仪输入接口）
 - `Hardware/JY301P.c/.h`、`wit_c_sdk.c/.h`：陀螺仪协议与解析
-- `Tracking/HW_I2C/app_irtracking/mpu6050` 等历史模块：旧方案残留
-
 ---
 
 ## 开发历程
