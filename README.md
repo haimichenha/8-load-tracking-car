@@ -194,11 +194,11 @@
 | 蜂鸣器 | `Hardware/bsp_buzzer.c/.h` | `Buzzer_PlayBeep`、`Buzzer_BeepTriple`、`Buzzer_Update` | 启动/激活/急停/终点提示 |
 | 串口日志 | `User/main.c` + `Hardware/bsp_usart.c/.h` | `Log_Add`、`Log_Start/Stop`、`Log_Export`、`UART4_Send_String` | `LOG_ENABLE`、`LOG_PERIOD_MS`、`LOG_MAX_ENTRIES` |
 
-### 2.1 重点文件补充说明（你关心的模块）
+### 2.1 重点文件补充说明
 
 - `Hardware/bsp_led_pwm.c/.h`：当前 LED 主实现，负责三路亮度 PWM、亮度档位、终点灯效。
-- `Hardware/app_ui.c/.h`：历史 UI 页面框架（含陀螺仪页等），当前 V7 主流程未调用，现行显示逻辑在 `User/main.c` 内直接渲染。
-- `Hardware/app_motor.c/.h`：历史运动封装（`Motion_Car_Control`），当前 V7 主流程主要直接走 `bsp_motor + bsp_encoder + main.c 内 PI`。
+- `Hardware/app_ui.c/.h`：历史 UI 页面框架（含陀螺仪页等），当前 主流程未调用，现行显示逻辑在 `User/main.c` 内直接渲染。
+- `Hardware/app_motor.c/.h`：历史运动封装（`Motion_Car_Control`），当前  主流程主要直接走 `bsp_motor + bsp_encoder + main.c 内 PI`。
 - `Hardware/bsp_encoder.c/.h`：编码器采样与速度/里程计算，给主循环速度环提供反馈。
 - `Hardware/bsp_ir_gpio.c/.h`：循迹输入底层，8 路 GPIO 快速读取。
 - `Hardware/bsp_buzzer.c/.h`：蜂鸣器音效状态机，主循环按周期调用 `Buzzer_Update`。
@@ -220,13 +220,6 @@
 2. 再调循迹环（Kp 响应、Kd 抑振）
 3. 最后调避障阈值和基础速度
 
-### 4. 备用/历史模块说明（当前主流程未调用）
-
-以下文件在工程中仍可见，但**当前 V7 主流程未接入**：
-
-- `Hardware/app_ui.c/.h`：旧版多页面 UI 框架（含陀螺仪页）
-- `Hardware/app_control.c/.h`：旧版控制状态机框架（含陀螺仪输入接口）
-- `Hardware/JY301P.c/.h`、`wit_c_sdk.c/.h`：陀螺仪协议与解析
 ---
 
 ## 开发历程
