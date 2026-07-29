@@ -1,41 +1,15 @@
-# Project Turning Points
+# Durable Decisions
 
-本文件只保留会影响 STM32F103ZET6 电赛小车长期结构和测试方式的决策。旧 lidarMSP 的转折不再作为当前硬件基线。
+| Decision | Status | Consequence |
+| --- | --- | --- |
+| Primary local guidance is eight-channel gray tracking | Confirmed | Use primary ADC PC0/PC1/PC2 plus gray IO PG0/PG1 in every competition image |
+| Front TB6612 is the motion baseline | Confirmed | Preserve PA2/PA3, PE2-PE6, TIM5 and TIM3 ownership |
+| Four-wheel rear TB6612 mapping uses PF1-PF4 directions and PC2 STBY | Bench-only | PC2 cannot coexist with gray ADC 2 |
+| Rear PWM moved to TIM1 PE13/PE14 | Bench verified at MCU output level | Requires a rear-STBY remap for competition |
+| Rear encoders PB6/PB7 and PC6/PC7 | Wired/test-input stage | Hardware TIM4/TIM8 encoder mode and sign calibration remain pending |
+| Car starts tasks from physical buttons | D-task requirement | Do not add ground-station task-start control |
+| Car sends pose at 10 Hz as LoRa time base | V2.1 requirement | Do not transmit arbitrary free-running telemetry |
+| A-to-B is coordinated but deadline-bound | D-task requirement | Measure and preserve margin below 15 s; do not label it merely “slow” |
 
-## 1. 2026-07-26：统一到 STM32F103ZET6 引脚表
-
-- 决策：所有当前外设分配以 `rules.md` 为唯一基线。
-- 原因：旧 skill 文件混入 MSPM0 和旧雷达车引脚，不能继续指导 STM32F103ZET6 工程。
-- 影响：代码宏、接线表、测试脚本和后续文档不得再使用旧 `PB25/PB0/PB7/PB6` 按键、`PB15/PB16` 雷达或旧电机 PWM 结论。
-- 验收：每个新增模块先与 `rules.md` 的当前主用/备用/条件候选表交叉检查。
-
-## 2. 电机 PWM 与 USART2 默认脚冲突
-
-- 决策：`PA2/PA3` 固定给 TB6612 的 `TIM2_CH3/CH4`。
-- 后果：USART2 默认脚不启用。
-- 替代：陀螺仪使用 USART2 重映射 `PD5/PD6`。
-- 防错：任何初始化 USART2 的代码必须显式说明 AFIO remap；若配置到 PA2/PA3，视为 pin-map 错误。
-
-## 3. OLED 与 USART3 默认脚冲突
-
-- 决策：`PB10/PB11` 优先给 OLED/I2C2。
-- 替代：MaixCam 或临时日志使用 USART3 重映射 `PD8/PD9`。
-- 防错：不允许为了临时日志关闭 OLED 后却忘记恢复，日志任务结束后记录端口状态。
-
-## 4. 编码器定时器必须独占关键通道
-
-- 左编码器：`PA0/PA1 -> TIM5_CH1/CH2`。
-- 右编码器：`PA6/PA7 -> TIM3_CH1/CH2`。
-- 结论：未验证编码器正负号和左右对应前，不进入速度环；TIM3 的 PB0/PB1 仅按 ADC/IO 备用处理。
-
-## 5. 先观测、后闭环
-
-- 单轮测试至少记录 PWM、方向、编码器增量和事件。
-- 双轮测试先比较同占空比下的速度趋势，再开始速度环。
-- 雷达、循迹、超声波、无线数据必须先转换为独立服务输入，不能绕过速度环直接写 PWM。
-
-## 6. 备用脚不是自由脚
-
-- `PB6/PB7`、`PD5/PD6`、`PD8/PD9` 属于重映射链路。
-- `PB0/PB1`、`PA4/PA5`、`PE13/PE14`、`PC4/PC5`、`PD12..PD15` 需要按当前优先功能逐项登记。
-- `PG1` 只有灰度循迹 GPIO 未使用时才能释放。
+Whenever a row changes, update `rules.md`, the project baseline document, and
+the relevant build/test evidence in the same change.
