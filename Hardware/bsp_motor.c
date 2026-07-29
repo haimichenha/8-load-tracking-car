@@ -22,7 +22,7 @@ static uint8_t s_motorEnabled = 0;
   * @brief  设置左电机方向
   */
 static void Motor_SetDirLeft(Motor_Dir_t dir)
-{
+{  
     switch (dir)
     {
         case MOTOR_DIR_FORWARD:

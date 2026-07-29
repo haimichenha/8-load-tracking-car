@@ -1,0 +1,7 @@
+{
+  "permissions": {
+    "allow": [
+      "mcp__google-ai-search__search_ai"
+    ]
+  }
+}

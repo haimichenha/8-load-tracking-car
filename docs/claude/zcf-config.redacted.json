@@ -1,0 +1,12 @@
+{
+  "version": "2.12.8",
+  "preferredLang": "zh-CN",
+  "aiOutputLang": "zh-CN",
+  "outputStyles": [
+    "engineer-professional",
+    "nekomata-engineer",
+    "laowang-engineer"
+  ],
+  "defaultOutputStyle": "explanatory",
+  "lastUpdated": "2025-09-06T15:27:03.775Z"
+}

@@ -1,0 +1,5 @@
+Claude Code settings.json 位置（Windows）：
+%USERPROFILE%\.claude\settings.json
+
+另外一个相关文件：
+%USERPROFILE%\.claude\.zcf-config.json
