@@ -136,6 +136,21 @@
 `13144 B`；`.isr_vector/.text/.rodata/.data` 全段 `matched`，随后 reset/run。当前诊断口
 `COM13` 在主机侧未能打开，因此本条只记录烧录校验，不把实车结果误写为已验收。
 
+### 2026-07-31：恢复 `b81e6c5` 弯道控制基线
+
+按确认的历史点 `b81e6c5 feat: relay radar pose to ground station` 恢复全部弯道控制：灰度/总差速
+和失线定向轮差均为 `2200 cps`；灰度增益为 `1/3/4/5`，yaw 增益为 `3/4/5/5`；弯道公共速度保持
+`500/420/280 mm/s`。移除后续的中心捕获、大差速、三帧失线历史和边缘外轮前馈。A 点弧线终点判定
+仍来自该版本的父提交，保持不变。
+
+无线链路不是弯道控制的一部分：当前 LoRa `CAR_POSE` 的 X/Y 取反继续保留，yaw 与速度不变。
+本恢复候选尚未产生新的实车验收日志。
+
+该基线已改用 STM32CubeProgrammer 的 J-Link 接口完成写入：擦除扇区 `0..15` 后下载
+`lidar_car.hex`，工具报告 `Download verified successfully` 并 reset。随后 COM13 状态回读为
+`IDLE/BOOT`、`stable_mask=255`（A 点全黑）、`gyro_fresh=1`、`motors_enabled=0`；这证明烧录
+镜像已运行且满足 PG10 启动前置条件，但尚不代表已完成实车一圈验收。
+
 无线坐标变换继续保留：LoRa `CAR_POSE` 转发 `X/Y` 取反，yaw 与速度字段不变。
 静态向量 `X=6,Y=8,yaw=9.6°` 编码为 `X=FF FF FF FA`、`Y=FF FF FF F8`、yaw `00 60`。
 

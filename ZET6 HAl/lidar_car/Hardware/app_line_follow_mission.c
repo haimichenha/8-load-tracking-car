@@ -78,9 +78,6 @@
 #define LINE_TARGET_MAX_CPS                 4200
 #define LINE_LOST_CORNER_THRESHOLD_CPS       500
 #define LINE_LOST_CORNER_DIFFERENTIAL_CPS   2200
-#define LINE_LOST_EDGE_MEMORY_MS             180U
-#define LINE_LOST_EDGE_ERROR_X100            300
-#define LINE_TURN_HISTORY_COUNT                3U
 #define LINE_A_RETURN_TURN_PROGRESS_TENTHS   3300L
 #define LINE_A_ARC_RAW_MASK                  0xF8U
 #define LINE_A_ARC_CONFIRM_SAMPLES              3U
@@ -188,11 +185,6 @@ static uint32_t s_lastButtonPressMs;
 static const char *s_lastReason;
 static int16_t s_holdDifferentialCps;
 static int16_t s_lastTrackingDifferentialCps;
-static int16_t s_turnHistory[LINE_TURN_HISTORY_COUNT];
-static uint8_t s_turnHistoryWriteIndex;
-static uint8_t s_turnHistoryCount;
-static int16_t s_lastEdgeDifferentialCps;
-static uint32_t s_lastEdgeDifferentialMs;
 static int16_t s_targetLeftCps;
 static int16_t s_targetRightCps;
 static int16_t s_measuredLeftCps;
@@ -290,78 +282,6 @@ static const char *LineMission_StateName(void)
         case LINE_MISSION_IDLE:
         default:                      return "IDLE";
     }
-}
-
-static void LineMission_ResetTurnHistory(void)
-{
-    uint8_t index;
-
-    s_turnHistoryWriteIndex = 0U;
-    s_turnHistoryCount = 0U;
-    s_lastEdgeDifferentialCps = 0;
-    s_lastEdgeDifferentialMs = 0U;
-    for (index = 0U; index < LINE_TURN_HISTORY_COUNT; ++index)
-    {
-        s_turnHistory[index] = 0;
-    }
-}
-
-static void LineMission_RecordTrackingTurn(uint32_t nowMs)
-{
-    int16_t differential = s_observer.totalDifferentialCps;
-
-    s_lastTrackingDifferentialCps = differential;
-    s_turnHistory[s_turnHistoryWriteIndex] = differential;
-    ++s_turnHistoryWriteIndex;
-    if (s_turnHistoryWriteIndex >= LINE_TURN_HISTORY_COUNT)
-    {
-        s_turnHistoryWriteIndex = 0U;
-    }
-    if (s_turnHistoryCount < LINE_TURN_HISTORY_COUNT)
-    {
-        ++s_turnHistoryCount;
-    }
-
-    /* X2/X3 or X6/X7 and beyond are treated as a directed edge approach.
-     * Preserve that side through a following all-white sample. */
-    if (LineMission_Abs(s_observer.grayErrorX100) >=
-        LINE_LOST_EDGE_ERROR_X100)
-    {
-        s_lastEdgeDifferentialCps = differential;
-        s_lastEdgeDifferentialMs = nowMs;
-    }
-}
-
-static int16_t LineMission_SelectLostHoldDifferential(uint32_t nowMs)
-{
-    int32_t sum = 0;
-    int16_t held;
-    uint8_t index;
-
-    if (((uint32_t)(nowMs - s_lastEdgeDifferentialMs) <=
-         LINE_LOST_EDGE_MEMORY_MS) &&
-        (LineMission_Abs(s_lastEdgeDifferentialCps) >=
-         LINE_LOST_CORNER_THRESHOLD_CPS))
-    {
-        return (s_lastEdgeDifferentialCps < 0) ?
-               -LINE_LOST_CORNER_DIFFERENTIAL_CPS :
-               LINE_LOST_CORNER_DIFFERENTIAL_CPS;
-    }
-
-    for (index = 0U; index < s_turnHistoryCount; ++index)
-    {
-        sum += s_turnHistory[index];
-    }
-    held = (s_turnHistoryCount != 0U) ?
-           (int16_t)(sum / (int32_t)s_turnHistoryCount) :
-           s_lastTrackingDifferentialCps;
-
-    if (LineMission_Abs(held) >= LINE_LOST_CORNER_THRESHOLD_CPS)
-    {
-        held = (held < 0) ? -LINE_LOST_CORNER_DIFFERENTIAL_CPS :
-                              LINE_LOST_CORNER_DIFFERENTIAL_CPS;
-    }
-    return held;
 }
 
 static void LineMission_VelocityWindowReset(LineVelocityWindow_t *window)
@@ -1187,7 +1107,6 @@ static void LineMission_ResetRunControllers(void)
     SpeedLadrc_Reset(&s_rightSpeed, 0.0f);
     s_holdDifferentialCps = 0;
     s_lastTrackingDifferentialCps = 0;
-    LineMission_ResetTurnHistory();
     s_normalLineCount = 0U;
     s_completeMarkCount = 0U;
     s_arcTerminalCandidateCount = 0U;
@@ -1349,7 +1268,7 @@ static void LineMission_UpdateRunState(uint32_t nowMs)
     if ((s_state == LINE_MISSION_TRACK) &&
         (s_observer.lineClass == LINE_OBSERVER_TRACK))
     {
-        LineMission_RecordTrackingTurn(nowMs);
+        s_lastTrackingDifferentialCps = s_observer.totalDifferentialCps;
     }
 
     if (s_state == LINE_MISSION_LEAVE_A)
@@ -1389,9 +1308,16 @@ static void LineMission_UpdateRunState(uint32_t nowMs)
 
     if (s_observer.lineClass == LINE_OBSERVER_LOST)
     {
-        /* When an edge sample becomes all-white, keep that directed turn;
-         * otherwise use the recent three-frame steering history. */
-        s_holdDifferentialCps = LineMission_SelectLostHoldDifferential(nowMs);
+        /* The observer clears its error on a white mask; retain the last
+         * measured turn rather than blindly driving straight off a corner. */
+        s_holdDifferentialCps = s_lastTrackingDifferentialCps;
+        if (LineMission_Abs(s_holdDifferentialCps) >=
+            LINE_LOST_CORNER_THRESHOLD_CPS)
+        {
+            s_holdDifferentialCps = (s_holdDifferentialCps < 0) ?
+                                      -LINE_LOST_CORNER_DIFFERENTIAL_CPS :
+                                      LINE_LOST_CORNER_DIFFERENTIAL_CPS;
+        }
         s_lostStartMs = nowMs;
         LineMission_EnterState(LINE_MISSION_LOST_HOLD, nowMs, "LINE_LOST");
         return;
@@ -1501,7 +1427,6 @@ void LineFollowMission_Init(uint32_t nowMs)
     s_lastReason = "BOOT";
     s_holdDifferentialCps = 0;
     s_lastTrackingDifferentialCps = 0;
-    LineMission_ResetTurnHistory();
     s_targetLeftCps = 0;
     s_targetRightCps = 0;
     s_measuredLeftCps = 0;
