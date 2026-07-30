@@ -71,6 +71,9 @@
 #define LINE_TARGET_MAX_CPS                 4200
 #define LINE_LOST_CORNER_THRESHOLD_CPS       500
 #define LINE_LOST_CORNER_DIFFERENTIAL_CPS   2200
+#define LINE_A_RETURN_TURN_PROGRESS_TENTHS   3300L
+#define LINE_A_ARC_RAW_MASK                  0xF8U
+#define LINE_A_ARC_CONFIRM_SAMPLES              3U
 #define LINE_VELOCITY_WINDOW_COUNT             4U
 #define LINE_FROZEN_RECORD_COUNT             256U
 
@@ -146,6 +149,10 @@ static uint8_t s_buttonStablePressed;
 static uint8_t s_buttonCandidatePressed;
 static uint8_t s_normalLineCount;
 static uint8_t s_completeMarkCount;
+static uint8_t s_arcTerminalCandidateCount;
+static uint8_t s_lapYawTravelValid;
+static int16_t s_lastLapYawTenths;
+static int32_t s_lapYawTravelTenths;
 static uint8_t s_radioSequence;
 static uint16_t s_frozenWriteIndex;
 static uint16_t s_frozenCount;
@@ -179,6 +186,55 @@ static int16_t LineMission_Clamp(int32_t value, int16_t lower, int16_t upper)
 static int32_t LineMission_Abs(int32_t value)
 {
     return (value < 0) ? -value : value;
+}
+
+static int16_t LineMission_WrapTenthsDeg(int32_t value)
+{
+    while (value > 1800L)
+    {
+        value -= 3600L;
+    }
+    while (value < -1800L)
+    {
+        value += 3600L;
+    }
+    return (int16_t)value;
+}
+
+static void LineMission_ResetLapTurnProgress(void)
+{
+    s_lapYawTravelTenths = 0L;
+    s_lastLapYawTenths = s_observer.yawTenthsDeg;
+    s_lapYawTravelValid = (s_observer.gyroFresh != 0U) ? 1U : 0U;
+}
+
+static void LineMission_UpdateLapTurnProgress(void)
+{
+    int16_t yawStepTenths;
+
+    if (s_observer.gyroFresh == 0U)
+    {
+        return;
+    }
+    if (s_lapYawTravelValid == 0U)
+    {
+        s_lastLapYawTenths = s_observer.yawTenthsDeg;
+        s_lapYawTravelValid = 1U;
+        return;
+    }
+
+    yawStepTenths = LineMission_WrapTenthsDeg(
+        (int32_t)s_observer.yawTenthsDeg - s_lastLapYawTenths);
+    s_lastLapYawTenths = s_observer.yawTenthsDeg;
+    s_lapYawTravelTenths += yawStepTenths;
+    if (s_lapYawTravelTenths > 7200L)
+    {
+        s_lapYawTravelTenths = 7200L;
+    }
+    else if (s_lapYawTravelTenths < -7200L)
+    {
+        s_lapYawTravelTenths = -7200L;
+    }
 }
 
 static uint8_t LineMission_IsActive(void)
@@ -312,6 +368,8 @@ static void LineMission_WriteEvent(const char *event,
     DiagUart_WriteUInt32(LINE_REQUIRE_GYRO_FOR_START);
     DiagUart_WriteString(",yaw_tenths=");
     DiagUart_WriteInt32(s_observer.yawTenthsDeg);
+    DiagUart_WriteString(",lap_yaw_travel_tenths=");
+    DiagUart_WriteInt32(s_lapYawTravelTenths);
     DiagUart_WriteString(",gyro_age_ms=");
     DiagUart_WriteUInt32(s_observer.gyroAgeMs);
     DiagUart_WriteString(",motors_enabled=");
@@ -353,6 +411,8 @@ static void LineMission_WriteStatus(uint32_t nowMs)
     DiagUart_WriteInt32(s_observer.yawRateTenthsPerSec);
     DiagUart_WriteString(",heading_err_tenths=");
     DiagUart_WriteInt32(s_observer.headingErrorTenthsDeg);
+    DiagUart_WriteString(",lap_yaw_travel_tenths=");
+    DiagUart_WriteInt32(s_lapYawTravelTenths);
     DiagUart_WriteString(",gyro_angle_frames=");
     DiagUart_WriteUInt32(gyro->angleFrameCount);
     DiagUart_WriteString(",gyro_rate_frames=");
@@ -674,6 +734,10 @@ static void LineMission_ResetRunControllers(void)
     s_lastTrackingDifferentialCps = 0;
     s_normalLineCount = 0U;
     s_completeMarkCount = 0U;
+    s_arcTerminalCandidateCount = 0U;
+    s_lapYawTravelValid = 0U;
+    s_lastLapYawTenths = 0;
+    s_lapYawTravelTenths = 0L;
     s_frozenWriteIndex = 0U;
     s_frozenCount = 0U;
     s_frozen = 0U;
@@ -795,6 +859,7 @@ static void LineMission_UpdateRunState(uint32_t nowMs)
         {
             LineMission_ResetRunControllers();
             LineObserver_ResetHeadingReference(&s_observer);
+            LineMission_ResetLapTurnProgress();
             s_runStartMs = nowMs;
             LineMission_SendStartPlaceholder(nowMs);
             LineMission_EnterState(LINE_MISSION_LEAVE_A, nowMs, "START_OK");
@@ -823,6 +888,8 @@ static void LineMission_UpdateRunState(uint32_t nowMs)
         LineMission_Stop(LINE_MISSION_SAFE_STOP, nowMs, "RUN_WATCHDOG");
         return;
     }
+
+    LineMission_UpdateLapTurnProgress();
 
     if ((s_state == LINE_MISSION_TRACK) &&
         (s_observer.lineClass == LINE_OBSERVER_TRACK))
@@ -882,7 +949,47 @@ static void LineMission_UpdateRunState(uint32_t nowMs)
         return;
     }
 
-    if (s_observer.lineClass == LINE_OBSERVER_A_MARK)
+    /*
+     * B->C and D->A are both clockwise semicircles in the official map. A
+     * gray-only "outer right + wide" signature is therefore ambiguous and
+     * stopped the car between B and C. The JY901 yaw is already fresh for this
+     * controller, so enable the A marker only after the measured cumulative
+     * clockwise travel exceeds 330 degrees: upper half-circle plus almost all
+     * of the return half-circle. Then accept X4--X8/all-black for three 20 ms
+     * samples. This keeps the A marker tolerant of its curved entry without
+     * treating the B->C exit as the finish.
+     */
+    if (s_state == LINE_MISSION_TRACK)
+    {
+        if (s_lapYawTravelTenths <= -LINE_A_RETURN_TURN_PROGRESS_TENTHS)
+        {
+            if ((s_observer.rawMask & LINE_A_ARC_RAW_MASK) ==
+                 LINE_A_ARC_RAW_MASK)
+            {
+                if (s_arcTerminalCandidateCount < 255U)
+                {
+                    ++s_arcTerminalCandidateCount;
+                }
+                if (s_arcTerminalCandidateCount >= LINE_A_ARC_CONFIRM_SAMPLES)
+                {
+                    LineMission_Stop(LINE_MISSION_COMPLETE, nowMs,
+                                     "A_RETURN_AFTER_2_ARCS");
+                    return;
+                }
+            }
+            else
+            {
+                s_arcTerminalCandidateCount = 0U;
+            }
+        }
+        else
+        {
+            s_arcTerminalCandidateCount = 0U;
+        }
+    }
+
+    if ((s_lapYawTravelTenths <= -LINE_A_RETURN_TURN_PROGRESS_TENTHS) &&
+        (s_observer.lineClass == LINE_OBSERVER_A_MARK))
     {
         ++s_completeMarkCount;
         if ((uint32_t)s_completeMarkCount * LINE_CONTROL_PERIOD_MS >=
@@ -920,6 +1027,10 @@ void LineFollowMission_Init(uint32_t nowMs)
     s_lostStartMs = nowMs;
     s_normalLineCount = 0U;
     s_completeMarkCount = 0U;
+    s_arcTerminalCandidateCount = 0U;
+    s_lapYawTravelValid = 0U;
+    s_lastLapYawTenths = 0;
+    s_lapYawTravelTenths = 0L;
     s_radioSequence = 0U;
     s_frozenWriteIndex = 0U;
     s_frozenCount = 0U;
