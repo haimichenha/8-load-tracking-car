@@ -15,7 +15,7 @@ Resolve a conflict in this order:
 1. Current physical wiring and a repeatable observation from this build.
 2. `references/rules.md` and `docs/D题小车端实施基线.md`.
 3. The current STM32F103ZET6 source selected by the active CMake preset.
-4. `docs/D题_通用通信与接口规范_v2.1.docx` for V2.1 communication behavior.
+4. `F:\keil5\stm\docs\D题_通用通信与接口规范_v2.2.docx` for V2.2 communication behavior.
 5. `docs/D题 回复.txt` for official clarifications.
 6. Historical MSPM0/lidar, old motor tests, chat notes, and web examples.
 
@@ -25,19 +25,21 @@ before changing either one.
 
 ## Current Facts And Non-Facts
 
-- The eight-channel gray module uses five MCU interfaces: primary ADC
-  `PC0/PC1/PC2` plus gray GPIO `PG0/PG1`. The exact eight-position decoding,
-  ADC thresholds, and digital polarity require bench calibration.
+- The gray module uses `PC0/PC1/PC2` as GPIO address outputs `AD0/AD1/AD2`
+  and `PG0` as selected digital `OUT`; PG1 is unused. It is a 74HC4051-style
+  eight-channel mux, not an ADC array. Capture the all-white mask and then
+  obtain X1--X8 physical-position evidence before controller work.
 - Front TB6612 is the proven drive chain: PWM `PA2/PA3`, direction `PE2-PE5`,
   and `PE6` STBY. Front encoders use `TIM5 PA0/PA1` and `TIM3 PA6/PA7`.
 - The present rear TB6612 bench definition uses `PE13/PE14` PWM,
-  `PF1-PF4` direction, and `PC2` STBY. PC2 conflicts with the gray ADC main
-  group, so this is not a competition pin map until STBY is remapped.
+  `PF1-PF4` direction, and `PB9` STBY. It has no current gray conflict, but
+  four-wheel competition regression remains incomplete.
 - Rear encoder pins are wired as test inputs only. Their TIM4/TIM8 hardware
   encoder initialization and direction calibration are not yet complete.
-- LoRa module UART pins, final rear-direction remap, radar serial ownership,
-  wheel circumference, and final speed limits remain hardware decisions. Do
-  not manufacture a pin assignment or a physical performance claim for them.
+- LoRa module UART pins, radar serial ownership, wheel circumference, final
+  speed limits, and the remaining gray-output mapping remain hardware
+  decisions. The flight controller owns MaixCam ModeSeq/session control; do
+  not manufacture a car-side camera interface.
 
 ## Documentation And Evidence
 

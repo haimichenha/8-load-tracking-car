@@ -1,6 +1,6 @@
 ---
 name: stm32f103zet6-d-mission-car
-description: "Use when working on the STM32F103ZET6 land-and-air electronic-competition car for D task: eight-channel gray line tracking, four-wheel TB6612 bring-up, encoders, gyro/radar pose integration, LoRa V2.1 communication, A-to-B speed coordination, physical start buttons, staged testing, or related documentation. Read before changing car hardware code, mission behavior, pin maps, or test records."
+description: "Use when working on the STM32F103ZET6 land-and-air electronic-competition car for D task: gray line tracking, four-wheel TB6612 bring-up, encoders, gyro/radar pose integration, LoRa V2.2 communication, MaixCam coordination boundaries, A-to-B speed coordination, physical start buttons, staged testing, or related documentation. Read before changing car hardware code, mission behavior, pin maps, or test records."
 ---
 
 # D Task Car Skill
@@ -26,14 +26,14 @@ eight-channel gray tracking array, not a camera or an assumed lidar-only path.
 
 State the active mode before editing or flashing:
 
-- `BENCH_FOUR_WHEEL`: lifted-wheel TB6612 qualification. PC2 is rear STBY and
-  the gray ADC interface is intentionally disabled.
-- `COMPETITION_LINE_FOLLOW`: the gray module owns PC0/PC1/PC2 plus PG0/PG1.
-  The present rear STBY on PC2 is forbidden until it is physically remapped
-  and the code is updated.
+- `BENCH_FOUR_WHEEL`: lifted-wheel TB6612 qualification. The gray interface is
+  intentionally disabled even though rear STBY is now on PB9.
+- `COMPETITION_LINE_FOLLOW`: the gray module owns `PC0/PC1/PC2` as
+  `AD0/AD1/AD2` address outputs and `PG0` as the selected digital `OUT`
+  input. PG1 is unused. Scan and map all eight heads before controller work.
 
-Never claim both modes are enabled by the same PC2 configuration. Resolve the
-physical remap, code macros, safety defaults, and documentation together.
+Never claim the unresolved ADC channels form an eight-position decode. Resolve
+physical output mapping, thresholds, safety defaults, and documentation together.
 
 ## Operating Rules
 
@@ -47,9 +47,12 @@ physical remap, code macros, safety defaults, and documentation together.
 4. Choose A-to-B speed from measured path time with margin below the required
    15 s. Other verified sections may be faster, but only after the line,
    encoder, and braking behavior have been tested at that speed.
-5. Treat `docs/D题_通用通信与接口规范_v2.1.docx` as the communication
+5. Treat `F:\keil5\stm\docs\D题_通用通信与接口规范_v2.2.docx` as the communication
    authority. Do not invent a LoRa frame, free-running transmit schedule, or
    task acceptance semantic.
+6. Keep the MaixCam V2.2 session on the air side. The car provides
+   `TaskType/MissionId` and pose; only the flight controller creates `ModeSeq`
+   and controls CAMERA_MODE/ACTION. Do not route camera frames through the car.
 6. Keep bench evidence separate from competition evidence. PWM register values
    show MCU output, not motor torque, wheel direction, or closed-loop quality.
 

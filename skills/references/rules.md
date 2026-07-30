@@ -22,21 +22,30 @@ use USART2 remap `PD5/PD6` only after verifying the board wiring.
 
 ## 2. Eight-Channel Gray Tracking: Competition Baseline
 
-The eight-channel gray module uses five MCU interfaces, not eight direct GPIO
-inputs. Keep this ownership in every competition image:
+The Yahboom module uses a 74HC4051-style address selector: it has four MCU
+interfaces, not eight direct GPIO inputs. Keep this ownership in every
+competition image:
 
 | Interface | Pin | Role |
 | --- | --- | --- |
-| Gray ADC 0 / 1 / 2 | PC0 / PC1 / PC2 | Primary three-channel ADC group |
-| Gray IO 0 / 1 | PG0 / PG1 | Digital gray module interface |
+| Gray AD0 / AD1 / AD2 | PC0 / PC1 / PC2 | GPIO outputs; address bit0 / bit1 / bit2 selecting X1--X8 |
+| Gray OUT | PG0 | GPIO input; digital value of the selected head |
+| PG1 | Unused | Do not claim it as a gray input without physical wiring and a new test |
 | ADC reserve | PC3 / PB0 / PB1 | Do not use unless the primary group is replaced and documented |
 | Analog/DAC reserve | PA4 / PA5 | Not gray-tracking inputs |
 
-The module's conversion from these five signals to the eight physical gray
-positions is a hardware contract that must be recorded before controller work.
-Measure black/white levels, ADC thresholds, sensor order, error sign, and
-lost-line behavior on the actual tape. Do not assume the old PF-based
-`bsp_ir_gpio` driver represents this wiring; it is a historical implementation.
+Address `000`--`111` selects X1--X8 respectively. The 2026-07-30 mux8 evidence
+log (`lidar_car/logs/gray_mux_retest_20260730-104601.log`) verifies white
+`0x00` and black-line activation `X1..X8 = 0x01..0x80`, one bit per head.
+On the current map, a normally centered black line is `X4|X5 = 0x18`
+(`lidar_car/logs/gray_mux_center_x4_x5_20260730-110625.log`); this is the
+zero point. Vehicle-left and vehicle-right probes verified `X4 = 0x08` and
+`X5 = 0x10` respectively; use weights `-7/-5/-3/-1/+1/+3/+5/+7` for static
+diagnostics. This sign is not yet wired to motor control.
+Use `raw_mask XOR all_white_mask` to remove the module's output polarity.
+The remaining gray-sensor check is the physical left/right error sign and
+lost-line behavior on the actual tape. Do not use the old ADC test or old PF-based
+`bsp_ir_gpio` driver; both are historical implementations.
 
 ## 3. Rear TB6612: Bench-Only Mapping
 
@@ -45,19 +54,18 @@ lost-line behavior on the actual tape. Do not assume the old PF-based
 | Rear PWMA / PWMB | PE13 / PE14 | TIM1_CH3 / CH4, full remap; bench only |
 | Rear AIN1 / AIN2 | PF1 / PF2 | GPIO output; no current gray conflict |
 | Rear BIN1 / BIN2 | PF3 / PF4 | GPIO output; no current gray conflict |
-| Rear STBY | PC2 | Conflicts with primary gray ADC 2 |
+| Rear STBY | PB9 | GPIO output; no current gray conflict |
 | Rear-left encoder A / B | PB6 / PB7 | Input polling only; TIM4 encoder mode pending |
 | Rear-right encoder A / B | PC6 / PC7 | Input polling only; TIM8 encoder mode pending |
 
 `FourWheelTb6612Debug` is a lifted-wheel qualification image. It must not
-initialize the gray ADC interface. Conversely, a line-following mission image
-must not initialize rear STBY on PC2, and its safety module must leave PC2 in
-the gray ADC configuration.
+initialize the gray address-scan interface. A line-following mission image may use the
+PB9 rear STBY only after four-wheel motion and gray-array regression evidence
+exists; it must still keep all motor outputs in the safe state on fault.
 
-Before a four-wheel competition image exists, physically remap rear STBY away
-from PC2, update `bsp_aux_tb6612.*` and the motor-safe defaults, then perform
-direction, encoder, and gray-array regression tests. Do not select the
-replacement pin from this document by guess.
+Before a four-wheel competition image exists, preserve the verified PB9 rear
+STBY wiring, update `bsp_aux_tb6612.*` and motor-safe defaults with any future
+change, then perform direction, encoder, and gray-array regression tests.
 
 ## 4. Serial And Communication Ownership
 

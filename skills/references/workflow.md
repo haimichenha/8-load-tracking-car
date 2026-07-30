@@ -26,22 +26,27 @@ not flash a bench image onto a vehicle expected to use the gray array.
 
 Complete all items before enabling the D-task state machine:
 
-1. Configure PC0/PC1/PC2 as the primary gray ADC group and PG0/PG1 as gray
-   digital inputs; record raw values under the actual tape and lighting.
-2. Verify the module's reconstruction of L1-L8 by covering each physical
-   position in turn. Record threshold, polarity, and error sign.
-3. If four-wheel drive is required, remap rear STBY away from `PC2`, update
-   code and `rules.md`, then rerun the complete gray test.
+1. Configure PC0/PC1/PC2 as `AD0/AD1/AD2` GPIO address outputs and PG0 as
+   selected digital `OUT`; PG1 is unused. With all eight heads on white, latch
+   the all-white mask under actual field lighting.
+2. Verify X1--X8 by scanning each 3-bit address and moving the selected
+   physical position between adjacent white and the real black line. Record
+   the switch, polarity, and error sign; do not use historical ADC values.
+3. If four-wheel drive is required, preserve rear STBY on `PB9`, update code
+   and `rules.md` if its wiring changes, then rerun the complete gray test.
 4. Confirm front motor direction, encoder sign, and the safe stop path.
 5. Do not use the presence of a passing bench log as proof that this gate has
    passed.
 
 ## 4. Gray Tracking Bring-Up
 
-1. Print raw ADC0-ADC2, gray IO0/IO1, decoded L1-L8 states, weighted error,
-   line-lost state, target speed, left/right targets, and output limits.
-2. Verify sensor order by covering one physical gray position at a time. Do
-   not tune PID until the five-input decode maps to every physical position.
+1. Before a physical-position mapping exists, print raw eight-channel mask,
+   all-white-relative active mask, and stable mask only. Add decoded L1-L8
+   states, weighted error, line-lost state, target speed, left/right targets,
+   and output limits only after the mapping is verified.
+2. Verify sensor order with per-position map-white/map-black pairs. Do not
+   tune PID until the available inputs produce repeatable contrast and map to
+   physical positions; ADC raw values alone are not a decode.
 3. Establish a low-speed straight-line baseline, then gentle curves, then the
    tightest turn on the field. Tune the sensor threshold/polarity and steering
    sign before increasing speed.

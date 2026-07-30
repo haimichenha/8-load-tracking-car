@@ -4,9 +4,10 @@
 
 | Path | Use |
 | --- | --- |
-| `F:\keil5\stm\ZET6 HAl\lidar_car\docs\D题_通用通信与接口规范_v2.1.docx` | V2.1 frame layout, coordinate contract, LoRa slots, reliability, role boundaries |
+| `F:\keil5\stm\docs\D题_通用通信与接口规范_v2.2.docx` | V2.2 frame layout, coordinate contract, LoRa slots, reliability, and MaixCam session boundaries |
 | `F:\keil5\stm\ZET6 HAl\lidar_car\docs\D题 回复.txt` | Official clarifications: physical car button, 15 s A-to-B, line-following freedom, communication permission, platform limit |
-| `F:\keil5\stm\ZET6 HAl\lidar_car\docs\D题_Agent修改提示词_v2.1.md` | Role-specific implementation prompts; use B.3 for car-side scope |
+| `F:\keil5\stm\docs\D题_Agent修改提示词_v2.2.md` | Role-specific V2.2 implementation prompts; use B.3 for car scope and B.4 for the MaixCam boundary |
+| `F:\keil5\stm\ZET6 HAl\lidar_car\docs\D题_Agent修改提示词_v2.2.md` | Project-local V2.2 car/MaixCam synchronization summary |
 | `F:\keil5\stm\ZET6 HAl\lidar_car\docs\D题小车端实施基线.md` | Current car-side design decisions and unresolved hardware gates |
 
 ## Current Hardware And Test Sources
@@ -18,11 +19,16 @@
 | `Hardware/bsp_aux_tb6612.h` and `Hardware/bsp_aux_tb6612.c` | Rear TB6612 bench-only mapping; inspect before any four-wheel test |
 | `Hardware/app_four_wheel_tb6612_test.c` | Bounded four-wheel bench test behavior |
 | `logs/four_wheel_tb6612_wiring_20260729.md` | Bench wiring record; not a competition wiring approval |
+| `Hardware/bsp_gray_tracking.*` and `Hardware/app_gray_tracking_test.c` | Current 74HC4051-style X1-X8 address scan: PC0/PC1/PC2 drive AD0/AD1/AD2 and PG0 reads OUT |
+| `docs/灰度循迹触发测试.md` | Current mux8 wiring, all-white baseline, and sequential X1-X8 test protocol |
+| `scripts/analyze_gray_mux_log.ps1` | Current mux8 log analysis; use it instead of the archived ADC analyzer |
+| `logs/gray_tracking_sync_20260730.md` | Driver-correction checkpoint; historical ADC logs are not current mapping evidence |
 
 ## Update Policy
 
 Update `D题小车端实施基线.md` and `references/rules.md` together when a
-physical pin, selected interface, safety gate, or mission behavior changes.
+physical pin, selected interface, safety gate, V2.2 mission boundary, or
+mission behavior changes.
 Keep the Word communication specification unchanged unless the team formally
 revises the protocol. Do not treat historical test logs as a replacement for
 the current pin table.
