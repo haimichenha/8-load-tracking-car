@@ -181,6 +181,11 @@ void RobotUart_NanoWriteByte(uint8_t byte)
     RobotUart_WriteByte(UART5, byte);
 }
 
+void RobotUart_NanoWriteBuffer(const uint8_t *data, uint16_t length)
+{
+    RobotUart_WriteBuffer(UART5, data, length);
+}
+
 void RobotUart_NanoWriteString(const char *text)
 {
     RobotUart_WriteString(UART5, text);

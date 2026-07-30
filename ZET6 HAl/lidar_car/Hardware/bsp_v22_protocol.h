@@ -1,0 +1,68 @@
+#ifndef __BSP_V22_PROTOCOL_H
+#define __BSP_V22_PROTOCOL_H
+
+#include "stm32f10x.h"
+
+#define V22_HEAD0              0xAAU
+#define V22_HEAD1              0x55U
+#define V22_VERSION            0x02U
+#define V22_MAX_PAYLOAD        64U
+#define V22_MAX_FRAME_BYTES    (11U + V22_MAX_PAYLOAD)
+#define V22_STREAM_TIMEOUT_MS  100U
+
+#define V22_ADDR_BROADCAST     0x10U
+#define V22_ADDR_AIR_RADIO     0x20U
+#define V22_ADDR_CAR_RADIO     0x30U
+
+#define V22_TYPE_HEARTBEAT       0x03U
+#define V22_TYPE_ACK             0x11U
+#define V22_TYPE_CAR_POSE        0x80U
+#define V22_TYPE_TASK_REQUEST    0x81U
+#define V22_TYPE_CALIBRATION_SET 0x83U
+
+typedef struct
+{
+    uint8_t version;
+    uint8_t type;
+    uint8_t source;
+    uint8_t destination;
+    uint8_t sequence;
+    uint8_t flags;
+    uint8_t length;
+    uint8_t payload[V22_MAX_PAYLOAD];
+} V22Frame_t;
+
+typedef enum
+{
+    V22_PARSE_NONE = 0,
+    V22_PARSE_FRAME,
+    V22_PARSE_VERSION_ERROR,
+    V22_PARSE_LENGTH_ERROR,
+    V22_PARSE_CRC_ERROR,
+    V22_PARSE_TIMEOUT
+} V22ParseResult_t;
+
+typedef struct
+{
+    uint8_t buffer[V22_MAX_FRAME_BYTES];
+    uint8_t index;
+    uint8_t expectedLength;
+    uint32_t lastByteMs;
+} V22StreamParser_t;
+
+uint16_t V22Protocol_Crc16CcittFalse(const uint8_t *data, uint16_t length);
+uint16_t V22Protocol_Encode(uint8_t *buffer,
+                            uint16_t capacity,
+                            const V22Frame_t *frame);
+void V22Protocol_ParserInit(V22StreamParser_t *parser);
+V22ParseResult_t V22Protocol_ParserPush(V22StreamParser_t *parser,
+                                        uint8_t byte,
+                                        uint32_t nowMs,
+                                        V22Frame_t *frame);
+V22ParseResult_t V22Protocol_ParserCheckTimeout(V22StreamParser_t *parser,
+                                                uint32_t nowMs);
+uint8_t V22Protocol_DestinationAccepted(const V22Frame_t *frame,
+                                        uint8_t localAddress);
+const char *V22Protocol_ParseResultName(V22ParseResult_t result);
+
+#endif /* __BSP_V22_PROTOCOL_H */

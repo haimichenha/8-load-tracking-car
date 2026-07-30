@@ -117,6 +117,23 @@
                 "CMAKE_BUILD_TYPE": "Debug",
                 "LIDAR_CAR_MAIN_SOURCE": "${sourceDir}/Src/main_gray_tracking_test.c"
             }
+        },
+        {
+            "name": "LoRaProtocolDebug",
+            "inherits": "default",
+            "cacheVariables": {
+                "CMAKE_BUILD_TYPE": "Debug",
+                "LIDAR_CAR_MAIN_SOURCE": "${sourceDir}/Src/main_lora_protocol_test.c"
+            }
+        },
+        {
+            "name": "LoRaProtocol9600Debug",
+            "inherits": "default",
+            "cacheVariables": {
+                "CMAKE_BUILD_TYPE": "Debug",
+                "LIDAR_CAR_MAIN_SOURCE": "${sourceDir}/Src/main_lora_protocol_test.c",
+                "LORA_UART_BAUDRATE_VALUE": "9600"
+            }
         }
     ],
     "buildPresets": [
@@ -168,6 +185,14 @@
         {
             "name": "GrayTrackingDebug",
             "configurePreset": "GrayTrackingDebug"
+        },
+        {
+            "name": "LoRaProtocolDebug",
+            "configurePreset": "LoRaProtocolDebug"
+        },
+        {
+            "name": "LoRaProtocol9600Debug",
+            "configurePreset": "LoRaProtocol9600Debug"
         }
     ]
 }

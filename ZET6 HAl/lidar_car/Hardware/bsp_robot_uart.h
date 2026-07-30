@@ -24,6 +24,7 @@ uint8_t RobotUart_BluetoothTryReadByte(uint8_t *byte);
 
 void RobotUart_NanoInit(uint32_t baudrate);
 void RobotUart_NanoWriteByte(uint8_t byte);
+void RobotUart_NanoWriteBuffer(const uint8_t *data, uint16_t length);
 void RobotUart_NanoWriteString(const char *text);
 uint8_t RobotUart_NanoTryReadByte(uint8_t *byte);
 uint16_t RobotUart_NanoConsumeErrorFlags(void);

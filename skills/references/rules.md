@@ -74,12 +74,13 @@ change, then perform direction, encoder, and gray-array regression tests.
 | USART1 PA9/PA10 | Diagnostic log, 115200 8N1 | Preserve for bring-up and test evidence |
 | USART2 PD5/PD6 remap | Gyro candidate | Do not use PA2/PA3 |
 | UART4 PC10/PC11 | Radar candidate | Verify actual module wiring before enabling |
-| UART5 PC12/PD2 | Pi/wireless candidate | Verify actual module wiring before enabling |
+| UART5 PC12/PD2 | LoRa transparent wireless | Bench verified 2026-07-30: PC12=MCU TX -> radio RX; PD2=MCU RX <- radio TX; 115200 8N1 |
 | USART3 PD8/PD9 remap | Conditional expansion | Keep free until LoRa/other module ownership is confirmed |
 
-The D-task LoRa protocol is mandatory, but this table does not assert a final
-LoRa UART. Assign it only after the actual module and all competing interfaces
-have been checked.
+The D-task LoRa transport is assigned to UART5 by the 2026-07-30 bidirectional
+fixture test. Do not concurrently attach a Pi/Nano to PC12/PD2. The future
+Pi-to-MCU pose ingress requires a separate verified transport before the
+mission image is enabled.
 
 ## 5. Timer Ownership
 

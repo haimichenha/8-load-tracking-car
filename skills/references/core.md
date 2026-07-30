@@ -36,10 +36,15 @@ before changing either one.
   four-wheel competition regression remains incomplete.
 - Rear encoder pins are wired as test inputs only. Their TIM4/TIM8 hardware
   encoder initialization and direction calibration are not yet complete.
-- LoRa module UART pins, radar serial ownership, wheel circumference, final
-  speed limits, and the remaining gray-output mapping remain hardware
-  decisions. The flight controller owns MaixCam ModeSeq/session control; do
-  not manufacture a car-side camera interface.
+- LoRa transparent wireless is bench verified on UART5: `PC12=MCU TX -> radio
+  RX`, `PD2=MCU RX <- radio TX`, 115200 8N1. The exact 2026-07-30 V2.2
+  `CAR_POSE` fixture passed in the radio-to-PC direction and the calibration
+  fixture passed in the PC-to-radio direction. This is transport evidence only:
+  no 10 Hz pose publication, slot policy, Pi pose ingress, task request, or
+  calibration forwarding is enabled yet. Radar serial ownership, wheel
+  circumference, final speed limits, and gray lost-line/wide-line policy remain
+  hardware decisions. The flight controller owns MaixCam ModeSeq/session
+  control; do not manufacture a car-side camera interface.
 
 ## Documentation And Evidence
 

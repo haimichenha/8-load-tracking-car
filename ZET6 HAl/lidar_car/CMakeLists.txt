@@ -59,6 +59,12 @@ set(GYRO_BAUDRATE_VALUE
     "9600"
     CACHE STRING "USART2-remapped PD5/PD6 WIT gyro baud rate")
 
+# UART5 V2.2 wireless target rate.  The 9600 preset is a non-mission
+# diagnostic only, for detecting an unconfigured transparent radio.
+set(LORA_UART_BAUDRATE_VALUE
+    "115200"
+    CACHE STRING "UART5 LoRa protocol diagnostic baud rate")
+
 # Sources
 set(sources_SRCS
 	${LIDAR_CAR_MAIN_SOURCE}
@@ -75,6 +81,7 @@ set(sources_SRCS
 	${CMAKE_CURRENT_SOURCE_DIR}/Hardware/app_four_wheel_tb6612_test.c
 	${CMAKE_CURRENT_SOURCE_DIR}/Hardware/bsp_diag_uart.c
 	${CMAKE_CURRENT_SOURCE_DIR}/Hardware/bsp_robot_uart.c
+	${CMAKE_CURRENT_SOURCE_DIR}/Hardware/bsp_v22_protocol.c
 	${CMAKE_CURRENT_SOURCE_DIR}/Hardware/bsp_gyro_wit.c
 	${CMAKE_CURRENT_SOURCE_DIR}/Hardware/bsp_gray_tracking.c
 	${CMAKE_CURRENT_SOURCE_DIR}/Hardware/bsp_motor_safe.c
@@ -83,6 +90,7 @@ set(sources_SRCS
 	${CMAKE_CURRENT_SOURCE_DIR}/Hardware/app_servo_test.c
 	${CMAKE_CURRENT_SOURCE_DIR}/Hardware/app_bluetooth_motor_test.c
 	${CMAKE_CURRENT_SOURCE_DIR}/Hardware/app_nano_uart_test.c
+	${CMAKE_CURRENT_SOURCE_DIR}/Hardware/app_lora_protocol_test.c
 	${CMAKE_CURRENT_SOURCE_DIR}/Hardware/nano_uart_diag_log.c
 	${CMAKE_CURRENT_SOURCE_DIR}/Hardware/motor_diag_log.c
 	${CMAKE_CURRENT_SOURCE_DIR}/Hardware/motor_tb6612_test.c
@@ -156,6 +164,7 @@ target_compile_definitions(${CMAKE_PROJECT_NAME} PRIVATE
 	BLUETOOTH_MOTOR_OUTPUT_ENABLE=${BLUETOOTH_MOTOR_OUTPUT_ENABLE_VALUE}
 	BLUETOOTH_BAUDRATE=${BLUETOOTH_BAUDRATE_VALUE}
 	GYRO_BAUDRATE=${GYRO_BAUDRATE_VALUE}
+	LORA_UART_BAUDRATE=${LORA_UART_BAUDRATE_VALUE}
     $<$<COMPILE_LANGUAGE:C>: ${symbols_c_SYMB}>
     $<$<COMPILE_LANGUAGE:CXX>: ${symbols_cxx_SYMB}>
     $<$<COMPILE_LANGUAGE:ASM>: ${symbols_asm_SYMB}>
