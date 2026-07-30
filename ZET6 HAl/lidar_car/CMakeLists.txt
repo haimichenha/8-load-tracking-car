@@ -97,6 +97,7 @@ set(sources_SRCS
 	${CMAKE_CURRENT_SOURCE_DIR}/Hardware/bsp_diag_uart.c
 	${CMAKE_CURRENT_SOURCE_DIR}/Hardware/bsp_robot_uart.c
 	${CMAKE_CURRENT_SOURCE_DIR}/Hardware/bsp_radar_pose.c
+	${CMAKE_CURRENT_SOURCE_DIR}/Hardware/bsp_car_pose_link.c
 	${CMAKE_CURRENT_SOURCE_DIR}/Hardware/bsp_v22_protocol.c
 	${CMAKE_CURRENT_SOURCE_DIR}/Hardware/bsp_gyro_wit.c
 	${CMAKE_CURRENT_SOURCE_DIR}/Hardware/bsp_encoder.c

@@ -15,6 +15,7 @@ uint8_t RobotUart_ServoTryReadByte(uint8_t *byte);
 void RobotUart_RadarInit(uint32_t baudrate);
 uint8_t RobotUart_RadarTryReadByte(uint8_t *byte);
 uint16_t RobotUart_RadarConsumeErrorFlags(void);
+uint32_t RobotUart_RadarConsumeOverflowCount(void);
 
 /* USART3 full remap: PD8=TX, PD9=RX, Bluetooth module. */
 void RobotUart_BluetoothInit(uint32_t baudrate);
@@ -27,6 +28,7 @@ uint8_t RobotUart_BluetoothTryReadByte(uint8_t *byte);
 #define ROBOT_UART_ERROR_FRAMING (1U << 1)
 #define ROBOT_UART_ERROR_NOISE   (1U << 2)
 #define ROBOT_UART_ERROR_OVERRUN (1U << 3)
+#define ROBOT_UART_ERROR_RING_OVERFLOW (1U << 4)
 
 void RobotUart_NanoInit(uint32_t baudrate);
 void RobotUart_NanoWriteByte(uint8_t byte);

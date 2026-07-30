@@ -17,6 +17,7 @@
 
 #include "app_line_observer.h"
 #include "bsp_aux_tb6612.h"
+#include "bsp_car_pose_link.h"
 #include "bsp_diag_uart.h"
 #include "bsp_encoder.h"
 #include "bsp_four_wheel_direction.h"
@@ -33,6 +34,9 @@
 #define LINE_LEAVE_A_TIMEOUT_MS            3000U
 #define LINE_LOST_TIMEOUT_MS                650U
 #define LINE_COMPLETE_MARK_MS               200U
+#define LINE_RADIO_HEARTBEAT_PERIOD_MS      500U
+#define LINE_RADIO_POSE_PERIOD_MS            100U
+#define LINE_RADIO_POSE_FRESH_MS             250U
 #define LINE_RUN_WATCHDOG_MS              45000U
 #define LINE_GYRO_RUN_STALE_MS              250U
 #define LINE_ENCODER_LIVE_AFTER_MS         1000U
@@ -126,6 +130,7 @@ typedef struct
     uint8_t rawMask;
     uint8_t activeMask;
     uint8_t stableMask;
+    uint8_t centerCaptureActive;
     uint8_t lineClass;
     uint8_t missionState;
     uint8_t gyroFresh;
@@ -154,6 +159,13 @@ static uint8_t s_lapYawTravelValid;
 static int16_t s_lastLapYawTenths;
 static int32_t s_lapYawTravelTenths;
 static uint8_t s_radioSequence;
+static uint8_t s_radioHeartbeatStarted;
+static uint32_t s_lastRadioHeartbeatMs;
+static uint32_t s_radioHeartbeatTxCount;
+static uint8_t s_radioPoseStarted;
+static uint32_t s_lastRadioPoseTxMs;
+static uint32_t s_radioPoseTxCount;
+static uint32_t s_radioPoseDropCount;
 static uint16_t s_frozenWriteIndex;
 static uint16_t s_frozenCount;
 static uint8_t s_frozen;
@@ -370,6 +382,10 @@ static void LineMission_WriteEvent(const char *event,
     DiagUart_WriteInt32(s_observer.yawTenthsDeg);
     DiagUart_WriteString(",lap_yaw_travel_tenths=");
     DiagUart_WriteInt32(s_lapYawTravelTenths);
+    DiagUart_WriteString(",radio_hb_tx_count=");
+    DiagUart_WriteUInt32(s_radioHeartbeatTxCount);
+    DiagUart_WriteString(",radio_hb_last_ms=");
+    DiagUart_WriteUInt32(s_lastRadioHeartbeatMs);
     DiagUart_WriteString(",gyro_age_ms=");
     DiagUart_WriteUInt32(s_observer.gyroAgeMs);
     DiagUart_WriteString(",motors_enabled=");
@@ -379,9 +395,19 @@ static void LineMission_WriteEvent(const char *event,
     DiagUart_WriteString("\r\n");
 }
 
+static void LineMission_WriteHexByte(uint8_t value)
+{
+    static const char hex[] = "0123456789ABCDEF";
+
+    DiagUart_WriteChar(hex[value >> 4]);
+    DiagUart_WriteChar(hex[value & 0x0FU]);
+}
+
 static void LineMission_WriteStatus(uint32_t nowMs)
 {
     const volatile GyroWitState_t *gyro = GyroWit_GetState();
+    const CarPoseLinkState_t *pose = CarPoseLink_GetState();
+    uint8_t index;
     uint8_t rawPressed = (GPIO_ReadInputDataBit(GPIOG, GPIO_Pin_10) == Bit_RESET) ?
                          1U : 0U;
 
@@ -413,6 +439,69 @@ static void LineMission_WriteStatus(uint32_t nowMs)
     DiagUart_WriteInt32(s_observer.headingErrorTenthsDeg);
     DiagUart_WriteString(",lap_yaw_travel_tenths=");
     DiagUart_WriteInt32(s_lapYawTravelTenths);
+    DiagUart_WriteString(",radio_hb_tx_count=");
+    DiagUart_WriteUInt32(s_radioHeartbeatTxCount);
+    DiagUart_WriteString(",radio_hb_last_ms=");
+    DiagUart_WriteUInt32(s_lastRadioHeartbeatMs);
+    DiagUart_WriteString(",radio_pose_tx_count=");
+    DiagUart_WriteUInt32(s_radioPoseTxCount);
+    DiagUart_WriteString(",radio_pose_drop_count=");
+    DiagUart_WriteUInt32(s_radioPoseDropCount);
+    DiagUart_WriteString(",pi_pose_fresh=");
+    DiagUart_WriteUInt32(CarPoseLink_IsFresh(nowMs, LINE_RADIO_POSE_FRESH_MS));
+    DiagUart_WriteString(",pi_pose_rx_ok=");
+    DiagUart_WriteUInt32(pose->validFrameCount);
+    DiagUart_WriteString(",pi_pose_v22_ok=");
+    DiagUart_WriteUInt32(pose->v22FrameCount);
+    DiagUart_WriteString(",pi_pose_legacy_ok=");
+    DiagUart_WriteUInt32(pose->legacyFrameCount);
+    DiagUart_WriteString(",pi_pose_source=");
+    DiagUart_WriteUInt32(pose->sourceFormat);
+    DiagUart_WriteString(",pi_pose_raw_bytes=");
+    DiagUart_WriteUInt32(pose->rawByteCount);
+    DiagUart_WriteString(",pi_pose_rx_bad=");
+    DiagUart_WriteUInt32(pose->invalidFrameCount);
+    DiagUart_WriteString(",pi_pose_legacy_bad=");
+    DiagUart_WriteUInt32(pose->legacyInvalidFrameCount);
+    DiagUart_WriteString(",pi_pose_crc_bad=");
+    DiagUart_WriteUInt32(pose->crcErrorCount);
+    DiagUart_WriteString(",pi_pose_uart_err=");
+    DiagUart_WriteUInt32(pose->uartErrorFlags);
+    DiagUart_WriteString(",pi_pose_uart_ring_ovf=");
+    DiagUart_WriteUInt32(pose->uartRingOverflowCount);
+    DiagUart_WriteString(",pi_pose_cal_id=");
+    DiagUart_WriteUInt32(pose->calibrationId);
+    DiagUart_WriteString(",pi_pose_flags=");
+    DiagUart_WriteUInt32(pose->poseFlags);
+    DiagUart_WriteString(",pi_pose_x_cm=");
+    DiagUart_WriteInt32(pose->xCm);
+    DiagUart_WriteString(",pi_pose_y_cm=");
+    DiagUart_WriteInt32(pose->yCm);
+    DiagUart_WriteString(",pi_pose_yaw_tenths=");
+    DiagUart_WriteInt32(pose->yawTenthsDeg);
+    DiagUart_WriteString(",pi_pose_src_ms=");
+    DiagUart_WriteUInt32(pose->sourceTimeMs);
+    DiagUart_WriteString(",pi_pose_age_ms=");
+    if (pose->valid != 0U)
+    {
+        DiagUart_WriteUInt32(nowMs - pose->lastFrameMs);
+    }
+    else
+    {
+        DiagUart_WriteString("NA");
+    }
+    DiagUart_WriteString(",pi_pose_legacy_hex=");
+    if (pose->lastLegacyFrameAvailable != 0U)
+    {
+        for (index = 0U; index < 14U; ++index)
+        {
+            LineMission_WriteHexByte(pose->lastLegacyFrame[index]);
+        }
+    }
+    else
+    {
+        DiagUart_WriteString("NA");
+    }
     DiagUart_WriteString(",gyro_angle_frames=");
     DiagUart_WriteUInt32(gyro->angleFrameCount);
     DiagUart_WriteString(",gyro_rate_frames=");
@@ -487,6 +576,7 @@ static void LineMission_Record(uint32_t nowMs)
     record->rawMask = s_observer.rawMask;
     record->activeMask = s_observer.activeMask;
     record->stableMask = s_observer.stableMask;
+    record->centerCaptureActive = s_observer.centerCaptureActive;
     record->lineClass = (uint8_t)s_observer.lineClass;
     record->missionState = (uint8_t)s_state;
     record->gyroFresh = s_observer.gyroFresh;
@@ -518,6 +608,8 @@ static void LineMission_WriteRecord(const char *event, uint32_t nowMs)
     DiagUart_WriteUInt32(s_observer.activeMask);
     DiagUart_WriteString(",stable_mask=");
     DiagUart_WriteUInt32(s_observer.stableMask);
+    DiagUart_WriteString(",center_capture=");
+    DiagUart_WriteUInt32(s_observer.centerCaptureActive);
     DiagUart_WriteString(",err_x100=");
     DiagUart_WriteInt32(s_observer.grayErrorX100);
     DiagUart_WriteString(",gray_diff_cps=");
@@ -595,6 +687,8 @@ static void LineMission_DumpFrozenLog(void)
         DiagUart_WriteUInt32(record->activeMask);
         DiagUart_WriteString(",stable,");
         DiagUart_WriteUInt32(record->stableMask);
+        DiagUart_WriteString(",center_capture,");
+        DiagUart_WriteUInt32(record->centerCaptureActive);
         DiagUart_WriteString(",err_x100,");
         DiagUart_WriteInt32(record->errorX100);
         DiagUart_WriteString(",gray_diff,");
@@ -636,42 +730,149 @@ static void LineMission_DumpFrozenLog(void)
     DiagUart_WriteString("LF,event=dump_end\r\n");
 }
 
-static void LineMission_SendStartPlaceholder(uint32_t nowMs)
+static uint8_t LineMission_SendRadioHeartbeat(uint32_t nowMs)
 {
     V22Frame_t frame;
     uint8_t encoded[V22_MAX_FRAME_BYTES];
     uint16_t length;
 
-    /*
-     * This is a deliberately non-authoritative link proof: one V2.2
-     * HEARTBEAT.  It cannot start the aircraft.  Replace only after the
-     * selected TaskType, MissionId and non-zero CalibrationId are available
-     * for the required 0x81 CAR_TASK_REQUEST payload.
-     */
+    /* V2.2 maintenance heartbeat, payload is fixed at 8 bytes:
+     * DeviceStatus, ErrorCode, Reserved(u16=0), UptimeMs(u32, big-endian).
+     * It is not CAR_POSE and cannot request an aircraft task. */
     frame.version = V22_VERSION;
     frame.type = V22_TYPE_HEARTBEAT;
     frame.source = V22_ADDR_CAR_RADIO;
     frame.destination = V22_ADDR_BROADCAST;
     frame.sequence = s_radioSequence++;
     frame.flags = 0U;
-    frame.length = 0U;
+    frame.length = 8U;
+    frame.payload[0] = (uint8_t)s_state;
+    frame.payload[1] = (s_state == LINE_MISSION_FAULT) ? 1U : 0U;
+    frame.payload[2] = 0U;
+    frame.payload[3] = 0U;
+    frame.payload[4] = (uint8_t)(nowMs >> 24);
+    frame.payload[5] = (uint8_t)(nowMs >> 16);
+    frame.payload[6] = (uint8_t)(nowMs >> 8);
+    frame.payload[7] = (uint8_t)nowMs;
     length = V22Protocol_Encode(encoded, sizeof(encoded), &frame);
     if (length != 0U)
     {
         RobotUart_NanoWriteBuffer(encoded, length);
-        DiagUart_WriteString("LF,event=radio_start_placeholder,t_ms=");
-        DiagUart_WriteUInt32(nowMs);
-        DiagUart_WriteString(",type=3,seq=");
-        DiagUart_WriteUInt32(frame.sequence);
-        DiagUart_WriteString(",bytes=");
-        DiagUart_WriteUInt32(length);
-        DiagUart_WriteString(",not_task_request=1\r\n");
+        ++s_radioHeartbeatTxCount;
+        return 1U;
+    }
+    return 0U;
+}
+
+static void LineMission_UpdateRadioHeartbeat(uint32_t nowMs)
+{
+    /* Maintenance/test image: continuously expose a 2 Hz link heartbeat,
+     * independent of the PG10 mission state. It is never CAR_POSE or a task
+     * request; replace it with the formal 10 Hz slot scheduler before a
+     * flight-coordinated task. */
+    if ((s_radioHeartbeatStarted == 0U) ||
+        ((uint32_t)(nowMs - s_lastRadioHeartbeatMs) >=
+         LINE_RADIO_HEARTBEAT_PERIOD_MS))
+    {
+        (void)LineMission_SendRadioHeartbeat(nowMs);
+        s_lastRadioHeartbeatMs = nowMs;
+        s_radioHeartbeatStarted = 1U;
+    }
+}
+
+static void LineMission_WriteU16Be(uint8_t *destination, uint16_t value)
+{
+    destination[0] = (uint8_t)(value >> 8);
+    destination[1] = (uint8_t)value;
+}
+
+static void LineMission_WriteU32Be(uint8_t *destination, uint32_t value)
+{
+    destination[0] = (uint8_t)(value >> 24);
+    destination[1] = (uint8_t)(value >> 16);
+    destination[2] = (uint8_t)(value >> 8);
+    destination[3] = (uint8_t)value;
+}
+
+static uint8_t LineMission_SendCarPose(const CarPoseLinkState_t *pose)
+{
+    V22Frame_t frame;
+    uint8_t encoded[V22_MAX_FRAME_BYTES];
+    uint8_t poseFlags;
+    uint16_t length;
+
+    if (pose == 0)
+    {
+        return 0U;
+    }
+
+    /* The Pi owns platform-center position/calibration/yaw validity. The MCU
+     * is the LoRa endpoint and adds the truthful physical run-state bit. */
+    poseFlags = pose->poseFlags;
+    if (LineMission_IsActive() != 0U)
+    {
+        poseFlags |= V22_POSE_FLAG_CAR_RUNNING;
     }
     else
     {
-        DiagUart_WriteString("LF,event=radio_start_placeholder_fail,t_ms=");
-        DiagUart_WriteUInt32(nowMs);
-        DiagUart_WriteString(",reason=ENCODE\r\n");
+        poseFlags &= (uint8_t)~V22_POSE_FLAG_CAR_RUNNING;
+    }
+
+    frame.version = V22_VERSION;
+    frame.type = V22_TYPE_CAR_POSE;
+    frame.source = V22_ADDR_CAR_RADIO;
+    frame.destination = V22_ADDR_BROADCAST;
+    frame.sequence = s_radioSequence++;
+    frame.flags = 0U;
+    frame.length = 22U;
+    frame.payload[0] = pose->coordinateFrame;
+    frame.payload[1] = poseFlags;
+    LineMission_WriteU16Be(&frame.payload[2], pose->calibrationId);
+    LineMission_WriteU32Be(&frame.payload[4], (uint32_t)pose->xCm);
+    LineMission_WriteU32Be(&frame.payload[8], (uint32_t)pose->yCm);
+    LineMission_WriteU16Be(&frame.payload[12], (uint16_t)pose->yawTenthsDeg);
+    LineMission_WriteU16Be(&frame.payload[14], (uint16_t)pose->vxCmPerSec);
+    LineMission_WriteU16Be(&frame.payload[16], (uint16_t)pose->vyCmPerSec);
+    LineMission_WriteU32Be(&frame.payload[18], pose->sourceTimeMs);
+
+    length = V22Protocol_Encode(encoded, sizeof(encoded), &frame);
+    if (length == 0U)
+    {
+        return 0U;
+    }
+    RobotUart_NanoWriteBuffer(encoded, length);
+    ++s_radioPoseTxCount;
+    return 1U;
+}
+
+static void LineMission_UpdateRadioLink(uint32_t nowMs)
+{
+    const CarPoseLinkState_t *pose;
+
+    CarPoseLink_Poll(nowMs);
+    pose = CarPoseLink_GetState();
+    if (CarPoseLink_IsFresh(nowMs, LINE_RADIO_POSE_FRESH_MS) != 0U)
+    {
+        if ((s_radioPoseStarted == 0U) ||
+            ((uint32_t)(nowMs - s_lastRadioPoseTxMs) >=
+             LINE_RADIO_POSE_PERIOD_MS))
+        {
+            if (LineMission_SendCarPose(pose) == 0U)
+            {
+                ++s_radioPoseDropCount;
+            }
+            s_lastRadioPoseTxMs = nowMs;
+            s_radioPoseStarted = 1U;
+        }
+        return;
+    }
+
+    /* A maintenance heartbeat is kept only while no formal pose source is
+     * available and the vehicle is stopped. The 55-100 ms guard interval is
+     * not polluted during an active run with stale Pi data. */
+    if (LineMission_IsActive() == 0U)
+    {
+        LineMission_UpdateRadioHeartbeat(nowMs);
     }
 }
 
@@ -861,7 +1062,6 @@ static void LineMission_UpdateRunState(uint32_t nowMs)
             LineObserver_ResetHeadingReference(&s_observer);
             LineMission_ResetLapTurnProgress();
             s_runStartMs = nowMs;
-            LineMission_SendStartPlaceholder(nowMs);
             LineMission_EnterState(LINE_MISSION_LEAVE_A, nowMs, "START_OK");
         }
         else if ((uint32_t)(nowMs - s_stateStartMs) >= LINE_START_GYRO_WAIT_MS)
@@ -1010,6 +1210,7 @@ void LineFollowMission_Init(uint32_t nowMs)
     AuxTb6612_Init();
     Encoder_Init();
     GyroWit_Init(GYRO_BAUDRATE);
+    CarPoseLink_Init(RADAR_POSE_UART_BAUDRATE);
     RobotUart_NanoInit(LORA_UART_BAUDRATE);
     LineObserver_Init(&s_observer, nowMs);
     LineMission_ButtonInit(nowMs);
@@ -1032,6 +1233,13 @@ void LineFollowMission_Init(uint32_t nowMs)
     s_lastLapYawTenths = 0;
     s_lapYawTravelTenths = 0L;
     s_radioSequence = 0U;
+    s_radioHeartbeatStarted = 0U;
+    s_lastRadioHeartbeatMs = 0U;
+    s_radioHeartbeatTxCount = 0U;
+    s_radioPoseStarted = 0U;
+    s_lastRadioPoseTxMs = 0U;
+    s_radioPoseTxCount = 0U;
+    s_radioPoseDropCount = 0U;
     s_frozenWriteIndex = 0U;
     s_frozenCount = 0U;
     s_frozen = 0U;
@@ -1051,14 +1259,14 @@ void LineFollowMission_Init(uint32_t nowMs)
     DiagUart_WriteString("LF,boot,mode=COMPETITION_LINE_FOLLOW,start_key=PG10_active_low,");
     DiagUart_WriteString("gray=pc0_pc1_pc2_pg0,white_raw=0,center_mask=24,");
     DiagUart_WriteString("front=pa2_pa3_pe2_pe6,rear=pe13_pe14_pf1_pf4_pb9,enc_front=tim5_tim3,rear=open_loop_follower,");
-    DiagUart_WriteString("forward_sign=fl-1_fr-1_rl+1_rr-1,gyro=usart2_remap_pd5_tx_pd6_rx_9600,radar=uart4_backup_not_control,");
+    DiagUart_WriteString("forward_sign=fl-1_fr-1_rl+1_rr-1,gyro=usart2_remap_pd5_tx_pd6_rx_9600,pi_pose=uart4_v22_31_to_32,");
     DiagUart_WriteString("radio=uart5_pc12_pd2,base_mm_s=");
     DiagUart_WriteInt32(LINE_BASE_SPEED_MM_S);
     DiagUart_WriteString(",base_cps=");
     DiagUart_WriteInt32(LineMission_MmToCps(LINE_BASE_SPEED_MM_S));
     DiagUart_WriteString(",gyro_required=");
     DiagUart_WriteUInt32(LINE_REQUIRE_GYRO_FOR_START);
-    DiagUart_WriteString(",task_request=disabled,placeholder=heartbeat\r\n");
+    DiagUart_WriteString(",radio=pose80_10hz_if_fresh_else_idle_hb03_500ms,task_request=disabled\r\n");
     DiagUart_WriteString("LF,commands,P=status,F=dump_frozen,S=manual_stop,H=help; start_only=PG10\r\n");
 }
 
@@ -1066,6 +1274,7 @@ void LineFollowMission_Update(uint32_t nowMs)
 {
     uint32_t samplePeriodMs;
 
+    LineMission_UpdateRadioLink(nowMs);
     LineMission_HandleButton(nowMs);
 
     samplePeriodMs = nowMs - s_lastControlMs;

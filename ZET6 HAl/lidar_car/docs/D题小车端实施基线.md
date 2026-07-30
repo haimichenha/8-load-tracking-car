@@ -54,6 +54,28 @@ LoRa 透明无线模块已于 2026-07-30 完成独立双向台架验证：MCU �
 MCU 记录了 CRC 有效且字段匹配的 `rx_ok`。该结论仅证明无线传输层，尚未启用 10 Hz 位姿、
 时隙、任务重传、ACK 或校准转发。UART5 不得再同时接 Pi/Nano；Pi 位姿入口需另选并验证接口。
 
+当前 `LineFollowJY901Debug` 在没有新鲜 Pi 位姿且小车静止时每 500 ms 发送 `HEARTBEAT(0x03)`；它采用
+固定 8 B 载荷 `DeviceStatus(u8) + ErrorCode(u8) + Reserved(u16=0) + UptimeMs(u32, big-endian)`。
+一旦 UART4 位姿新鲜，心跳让位给 10 Hz `CAR_POSE(0x80)`；心跳不能替代其 22 B 载荷、车端时隙和校准门禁。
+
+2026-07-30 已由地面站 `raspi@192.168.0.133` 的 `/dev/ttyUSB0` 实测接收：8 B 修复镜像运行后，
+`valid` 计数按约 2 Hz 增长，而 CRC、长度和 payload 丢弃计数不再增长。此项仅为维护心跳
+台架验收，`car_age=-1` 在未发送 `CAR_POSE` 时属预期结果；证据见
+`logs/line_follow_radio_heartbeat_groundstation_20260730.md`。
+
+V2.2 位姿转发代码现已接入同一镜像：UART4 首选 Pi 的
+`CAR_POSE(src=0x31,dst=0x32,len=22)`，校验 CRC、位置/yaw 有效位、yaw 范围、速度无效哨兵值和
+`CALIBRATED=>CalibrationId!=0` 后，经 UART5 以 `src=0x30,dst=0x10` 每 100 ms 广播。为兼容当前
+物理 Pi 的 14 B `FA...AB` 本地桥接帧，MCU 也可将其封装为未校准的预检 `CAR_POSE`；该兼容路径
+不置 `CALIBRATED`、以 MCU 接收时间作为临时 `SourceTimeMs`，不能用于正式任务。MCU 依据真实循迹状态改写
+`CAR_RUNNING` 位；Pi 数据超过 250 ms 后，车辆跑动中保持 LoRa 静默，静止时退回维护心跳。
+
+2026-07-30 的后续回归中，UART4 RXNE 环形缓冲消除了前台轮询造成的帧失步；MCU 已从 14 B 兼容流向地面站
+持续产生新鲜 `CAR_POSE`（`car_age<=0.098s`，约 10 Hz，UART4 原始输入约 20 Hz）。静止原始帧解码为
+`X=6 cm,Y=8 cm,yaw=9.6°`，说明 Pi 雷达零位仅有数厘米残差而非 MCU 载荷字节序错误；详见
+`logs/car_pose_legacy_bridge_groundstation_20260730.md`。该记录只证明未校准显示链路，不解除 Pi V2.2、
+校准、时隙与任务验收要求。
+
 ## 5. MaixCam V2.2 协同边界
 
 MaixCam Pro 只与飞控进行 `CAMERA_MODE`、`CAMERA_TARGET`、`CAMERA_ACTION` 和

@@ -1,7 +1,56 @@
 #include "bsp_robot_uart.h"
 
+#include "misc.h"
+
+#define ROBOT_UART_RADAR_RX_RING_SIZE 256U
+
 static uint16_t s_nanoErrorFlags;
-static uint16_t s_radarErrorFlags;
+static volatile uint16_t s_radarErrorFlags;
+static volatile uint8_t s_radarRxRing[ROBOT_UART_RADAR_RX_RING_SIZE];
+static volatile uint16_t s_radarRxHead;
+static volatile uint16_t s_radarRxTail;
+static volatile uint32_t s_radarRxOverflowCount;
+
+static uint16_t RobotUart_RadarRingNext(uint16_t index)
+{
+    ++index;
+    return (index >= ROBOT_UART_RADAR_RX_RING_SIZE) ? 0U : index;
+}
+
+static void RobotUart_RadarRecordErrors(uint16_t status)
+{
+    if ((status & USART_FLAG_PE) != 0U)
+    {
+        s_radarErrorFlags |= ROBOT_UART_ERROR_PARITY;
+    }
+    if ((status & USART_FLAG_FE) != 0U)
+    {
+        s_radarErrorFlags |= ROBOT_UART_ERROR_FRAMING;
+    }
+    if ((status & USART_FLAG_NE) != 0U)
+    {
+        s_radarErrorFlags |= ROBOT_UART_ERROR_NOISE;
+    }
+    if ((status & USART_FLAG_ORE) != 0U)
+    {
+        s_radarErrorFlags |= ROBOT_UART_ERROR_OVERRUN;
+    }
+}
+
+static void RobotUart_RadarQueueByte(uint8_t byte)
+{
+    uint16_t next = RobotUart_RadarRingNext(s_radarRxHead);
+
+    if (next == s_radarRxTail)
+    {
+        ++s_radarRxOverflowCount;
+        s_radarErrorFlags |= ROBOT_UART_ERROR_RING_OVERFLOW;
+        return;
+    }
+
+    s_radarRxRing[s_radarRxHead] = byte;
+    s_radarRxHead = next;
+}
 
 static void RobotUart_InitPeripheral(USART_TypeDef *uart, uint32_t baudrate)
 {
@@ -118,52 +167,42 @@ uint8_t RobotUart_ServoTryReadByte(uint8_t *byte)
 
 void RobotUart_RadarInit(uint32_t baudrate)
 {
+    NVIC_InitTypeDef nvic;
+
     RobotUart_ServoInit(baudrate);
+    USART_ITConfig(UART4, USART_IT_RXNE, DISABLE);
     s_radarErrorFlags = 0U;
+    s_radarRxHead = 0U;
+    s_radarRxTail = 0U;
+    s_radarRxOverflowCount = 0U;
+    (void)UART4->SR;
+    (void)UART4->DR;
+
+    /* UART5 LoRa TX and diagnostic TX can block foreground code longer than
+     * a UART4 byte time. Buffer Pi pose bytes in RXNE IRQ so an entire
+     * 14-byte pose burst survives unrelated output. */
+    nvic.NVIC_IRQChannel = UART4_IRQn;
+    nvic.NVIC_IRQChannelPreemptionPriority = 1U;
+    nvic.NVIC_IRQChannelSubPriority = 0U;
+    nvic.NVIC_IRQChannelCmd = ENABLE;
+    NVIC_Init(&nvic);
+    USART_ITConfig(UART4, USART_IT_RXNE, ENABLE);
 }
 
 uint8_t RobotUart_RadarTryReadByte(uint8_t *byte)
 {
-    uint16_t status;
-    uint16_t errors;
-
     if (byte == 0)
     {
         return 0U;
     }
 
-    status = UART4->SR;
-    errors = (uint16_t)(status & (USART_FLAG_PE |
-                                  USART_FLAG_FE |
-                                  USART_FLAG_NE |
-                                  USART_FLAG_ORE));
-    if ((errors & USART_FLAG_PE) != 0U)
+    if (s_radarRxTail == s_radarRxHead)
     {
-        s_radarErrorFlags |= ROBOT_UART_ERROR_PARITY;
-    }
-    if ((errors & USART_FLAG_FE) != 0U)
-    {
-        s_radarErrorFlags |= ROBOT_UART_ERROR_FRAMING;
-    }
-    if ((errors & USART_FLAG_NE) != 0U)
-    {
-        s_radarErrorFlags |= ROBOT_UART_ERROR_NOISE;
-    }
-    if ((errors & USART_FLAG_ORE) != 0U)
-    {
-        s_radarErrorFlags |= ROBOT_UART_ERROR_OVERRUN;
-    }
-
-    if ((status & USART_FLAG_RXNE) == 0U)
-    {
-        if (errors != 0U)
-        {
-            (void)UART4->DR;
-        }
         return 0U;
     }
 
-    *byte = (uint8_t)UART4->DR;
+    *byte = s_radarRxRing[s_radarRxTail];
+    s_radarRxTail = RobotUart_RadarRingNext(s_radarRxTail);
     return 1U;
 }
 
@@ -172,6 +211,29 @@ uint16_t RobotUart_RadarConsumeErrorFlags(void)
     uint16_t flags = s_radarErrorFlags;
     s_radarErrorFlags = 0U;
     return flags;
+}
+
+uint32_t RobotUart_RadarConsumeOverflowCount(void)
+{
+    uint32_t count = s_radarRxOverflowCount;
+    s_radarRxOverflowCount = 0U;
+    return count;
+}
+
+void UART4_IRQHandler(void)
+{
+    uint16_t status = UART4->SR;
+
+    RobotUart_RadarRecordErrors(status);
+    if ((status & USART_FLAG_RXNE) != 0U)
+    {
+        RobotUart_RadarQueueByte((uint8_t)UART4->DR);
+    }
+    else if ((status & (USART_FLAG_PE | USART_FLAG_FE |
+                        USART_FLAG_NE | USART_FLAG_ORE)) != 0U)
+    {
+        (void)UART4->DR;
+    }
 }
 
 void RobotUart_BluetoothInit(uint32_t baudrate)
