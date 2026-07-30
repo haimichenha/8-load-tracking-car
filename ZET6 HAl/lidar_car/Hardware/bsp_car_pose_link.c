@@ -12,6 +12,7 @@
 #define CAR_POSE_LINK_LEGACY_HEAD         0xFAU
 #define CAR_POSE_LINK_LEGACY_TAIL         0xABU
 #define CAR_POSE_LINK_LEGACY_SIZE            14U
+#define CAR_POSE_LINK_LEGACY_FIRST_TIME_MS     0U
 
 #define CAR_POSE_LINK_SOURCE_NONE             0U
 #define CAR_POSE_LINK_SOURCE_LEGACY           1U
@@ -21,6 +22,9 @@ static CarPoseLinkState_t s_state;
 static V22StreamParser_t s_parser;
 static uint8_t s_legacyFrame[CAR_POSE_LINK_LEGACY_SIZE];
 static uint8_t s_legacyFrameIndex;
+static uint8_t s_legacyRelayEpochStarted;
+static uint32_t s_legacyRelaySourceTimeMs;
+static uint32_t s_legacyRelayLastReceiveMs;
 
 static uint16_t CarPoseLink_ReadU16Be(const uint8_t *data)
 {
@@ -126,7 +130,23 @@ static void CarPoseLink_ConsumeLegacyByte(uint8_t byte, uint32_t nowMs)
     s_state.yawTenthsDeg = (int16_t)yawTenthsDeg;
     s_state.vxCmPerSec = CAR_POSE_LINK_INVALID_VELOCITY;
     s_state.vyCmPerSec = CAR_POSE_LINK_INVALID_VELOCITY;
-    s_state.sourceTimeMs = nowMs;
+    /* The legacy packet has no Pi timestamp.  Start a local relay epoch at
+     * the first accepted legacy sample, rather than using MCU boot uptime.
+     * A radar/Pi start delay must not hide an MCU reboot from the ground
+     * station's source-time reset gate.  This remains uncalibrated display
+     * telemetry only; native V2.2 Pi input supplies the real Pi timestamp. */
+    if (s_legacyRelayEpochStarted == 0U)
+    {
+        s_legacyRelayEpochStarted = 1U;
+        s_legacyRelaySourceTimeMs = CAR_POSE_LINK_LEGACY_FIRST_TIME_MS;
+    }
+    else
+    {
+        s_legacyRelaySourceTimeMs +=
+            (uint32_t)(nowMs - s_legacyRelayLastReceiveMs);
+    }
+    s_legacyRelayLastReceiveMs = nowMs;
+    s_state.sourceTimeMs = s_legacyRelaySourceTimeMs;
     s_state.lastFrameMs = nowMs;
     s_state.valid = 1U;
     ++s_state.validFrameCount;
@@ -154,6 +174,24 @@ static void CarPoseLink_RecordParseDrop(V22ParseResult_t result)
     }
 }
 
+static void CarPoseLink_ConsumeAck(const V22Frame_t *frame)
+{
+    if ((frame->source != V22_ADDR_CAR_PI) ||
+        (frame->destination != V22_ADDR_CAR_MCU) ||
+        (frame->length != 4U))
+    {
+        ++s_state.invalidFrameCount;
+        ++s_state.ackInvalidFrameCount;
+        return;
+    }
+
+    s_state.lastAckRequestType = frame->payload[0];
+    s_state.lastAckRequestSeq = frame->payload[1];
+    s_state.lastAckResult = frame->payload[2];
+    s_state.lastAckDetail = frame->payload[3];
+    ++s_state.ackFrameCount;
+}
+
 static void CarPoseLink_ConsumeFrame(const V22Frame_t *frame, uint32_t nowMs)
 {
     uint8_t flags;
@@ -161,6 +199,12 @@ static void CarPoseLink_ConsumeFrame(const V22Frame_t *frame, uint32_t nowMs)
     int16_t yawTenthsDeg;
     int16_t vxCmPerSec;
     int16_t vyCmPerSec;
+
+    if (frame->type == V22_TYPE_ACK)
+    {
+        CarPoseLink_ConsumeAck(frame);
+        return;
+    }
 
     if ((frame->type != V22_TYPE_CAR_POSE) ||
         (frame->source != V22_ADDR_CAR_PI) ||
@@ -216,6 +260,9 @@ void CarPoseLink_Init(uint32_t baudrate)
     RobotUart_RadarInit(baudrate);
     V22Protocol_ParserInit(&s_parser);
     s_legacyFrameIndex = 0U;
+    s_legacyRelayEpochStarted = 0U;
+    s_legacyRelaySourceTimeMs = 0U;
+    s_legacyRelayLastReceiveMs = 0U;
     for (index = 0U; index < sizeof(s_state); ++index)
     {
         raw[index] = 0U;

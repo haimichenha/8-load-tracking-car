@@ -19,6 +19,7 @@ typedef struct
     uint8_t activeMask;
     uint8_t stableMask;
     uint8_t activeCount;
+    uint8_t centerCaptureActive;
     uint8_t gyroFresh;
     uint8_t radarPoseValid;
     uint32_t gyroAgeMs;

@@ -5,6 +5,7 @@
 
 #define LINE_OBSERVER_WHITE_RAW_MASK         0x00U
 #define LINE_OBSERVER_FULL_MASK              0xFFU
+#define LINE_OBSERVER_CENTER_MASK             0x18U
 #define LINE_OBSERVER_STABLE_SAMPLES            2U
 #define LINE_OBSERVER_MAX_NORMAL_BITS           3U
 #define LINE_OBSERVER_GYRO_STALE_MS           250U
@@ -62,6 +63,7 @@ static void LineObserver_UpdateLineClass(LineObserver_t *observer)
     int16_t yawGain;
 
     observer->activeCount = LineObserver_CountBits(observer->stableMask);
+    observer->centerCaptureActive = 0U;
     observer->grayErrorX100 = 0;
     observer->grayDifferentialCps = 0;
     observer->yawRateReferenceTenthsPerSec = 0;
@@ -170,6 +172,7 @@ static void LineObserver_UpdateGyro(LineObserver_t *observer, uint32_t nowMs)
     headingAdvance = ((int32_t)observer->yawRateReferenceTenthsPerSec * 20L) / 1000L;
     observer->headingReferenceTenthsDeg = LineObserver_WrapTenthsDeg(
         (int32_t)observer->headingReferenceTenthsDeg + headingAdvance);
+
     observer->headingErrorTenthsDeg = LineObserver_WrapTenthsDeg(
         (int32_t)observer->headingReferenceTenthsDeg - observer->yawTenthsDeg);
     yawRateError = (int16_t)(observer->yawRateReferenceTenthsPerSec -
@@ -196,6 +199,7 @@ void LineObserver_Init(LineObserver_t *observer, uint32_t nowMs)
     observer->activeMask = (uint8_t)(sample.rawMask ^ LINE_OBSERVER_WHITE_RAW_MASK);
     observer->stableMask = observer->activeMask;
     observer->activeCount = 0U;
+    observer->centerCaptureActive = 0U;
     observer->gyroFresh = 0U;
     observer->radarPoseValid = 0U;
     observer->gyroAgeMs = 0U;

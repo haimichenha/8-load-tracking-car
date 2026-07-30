@@ -37,6 +37,9 @@
 #define LINE_RADIO_HEARTBEAT_PERIOD_MS      500U
 #define LINE_RADIO_POSE_PERIOD_MS            100U
 #define LINE_RADIO_POSE_FRESH_MS             250U
+#define LINE_MAINTENANCE_HOLD_MS            2000U
+#define LINE_MAINTENANCE_STATIONARY_MS     12000U
+#define LINE_MAINTENANCE_BROADCAST_COUNT       3U
 #define LINE_RUN_WATCHDOG_MS              45000U
 #define LINE_GYRO_RUN_STALE_MS              250U
 #define LINE_ENCODER_LIVE_AFTER_MS         1000U
@@ -75,6 +78,9 @@
 #define LINE_TARGET_MAX_CPS                 4200
 #define LINE_LOST_CORNER_THRESHOLD_CPS       500
 #define LINE_LOST_CORNER_DIFFERENTIAL_CPS   2200
+#define LINE_LOST_EDGE_MEMORY_MS             180U
+#define LINE_LOST_EDGE_ERROR_X100            300
+#define LINE_TURN_HISTORY_COUNT                3U
 #define LINE_A_RETURN_TURN_PROGRESS_TENTHS   3300L
 #define LINE_A_ARC_RAW_MASK                  0xF8U
 #define LINE_A_ARC_CONFIRM_SAMPLES              3U
@@ -149,9 +155,13 @@ static uint32_t s_lastLogMs;
 static uint32_t s_stateStartMs;
 static uint32_t s_runStartMs;
 static uint32_t s_lostStartMs;
+static uint32_t s_maintenanceStationarySinceMs;
+static uint32_t s_maintenanceButtonSinceMs;
 static uint32_t s_buttonCandidateSinceMs;
 static uint8_t s_buttonStablePressed;
 static uint8_t s_buttonCandidatePressed;
+static uint8_t s_maintenanceButtonPressed;
+static uint8_t s_maintenanceButtonHandled;
 static uint8_t s_normalLineCount;
 static uint8_t s_completeMarkCount;
 static uint8_t s_arcTerminalCandidateCount;
@@ -166,6 +176,11 @@ static uint8_t s_radioPoseStarted;
 static uint32_t s_lastRadioPoseTxMs;
 static uint32_t s_radioPoseTxCount;
 static uint32_t s_radioPoseDropCount;
+static uint16_t s_maintenanceResetId;
+static uint16_t s_maintenanceNextResetId;
+static uint8_t s_maintenanceBroadcastRemaining;
+static uint8_t s_maintenanceBroadcastSequence;
+static uint32_t s_maintenanceBroadcastSourceTimeMs;
 static uint16_t s_frozenWriteIndex;
 static uint16_t s_frozenCount;
 static uint8_t s_frozen;
@@ -173,6 +188,11 @@ static uint32_t s_lastButtonPressMs;
 static const char *s_lastReason;
 static int16_t s_holdDifferentialCps;
 static int16_t s_lastTrackingDifferentialCps;
+static int16_t s_turnHistory[LINE_TURN_HISTORY_COUNT];
+static uint8_t s_turnHistoryWriteIndex;
+static uint8_t s_turnHistoryCount;
+static int16_t s_lastEdgeDifferentialCps;
+static uint32_t s_lastEdgeDifferentialMs;
 static int16_t s_targetLeftCps;
 static int16_t s_targetRightCps;
 static int16_t s_measuredLeftCps;
@@ -270,6 +290,78 @@ static const char *LineMission_StateName(void)
         case LINE_MISSION_IDLE:
         default:                      return "IDLE";
     }
+}
+
+static void LineMission_ResetTurnHistory(void)
+{
+    uint8_t index;
+
+    s_turnHistoryWriteIndex = 0U;
+    s_turnHistoryCount = 0U;
+    s_lastEdgeDifferentialCps = 0;
+    s_lastEdgeDifferentialMs = 0U;
+    for (index = 0U; index < LINE_TURN_HISTORY_COUNT; ++index)
+    {
+        s_turnHistory[index] = 0;
+    }
+}
+
+static void LineMission_RecordTrackingTurn(uint32_t nowMs)
+{
+    int16_t differential = s_observer.totalDifferentialCps;
+
+    s_lastTrackingDifferentialCps = differential;
+    s_turnHistory[s_turnHistoryWriteIndex] = differential;
+    ++s_turnHistoryWriteIndex;
+    if (s_turnHistoryWriteIndex >= LINE_TURN_HISTORY_COUNT)
+    {
+        s_turnHistoryWriteIndex = 0U;
+    }
+    if (s_turnHistoryCount < LINE_TURN_HISTORY_COUNT)
+    {
+        ++s_turnHistoryCount;
+    }
+
+    /* X2/X3 or X6/X7 and beyond are treated as a directed edge approach.
+     * Preserve that side through a following all-white sample. */
+    if (LineMission_Abs(s_observer.grayErrorX100) >=
+        LINE_LOST_EDGE_ERROR_X100)
+    {
+        s_lastEdgeDifferentialCps = differential;
+        s_lastEdgeDifferentialMs = nowMs;
+    }
+}
+
+static int16_t LineMission_SelectLostHoldDifferential(uint32_t nowMs)
+{
+    int32_t sum = 0;
+    int16_t held;
+    uint8_t index;
+
+    if (((uint32_t)(nowMs - s_lastEdgeDifferentialMs) <=
+         LINE_LOST_EDGE_MEMORY_MS) &&
+        (LineMission_Abs(s_lastEdgeDifferentialCps) >=
+         LINE_LOST_CORNER_THRESHOLD_CPS))
+    {
+        return (s_lastEdgeDifferentialCps < 0) ?
+               -LINE_LOST_CORNER_DIFFERENTIAL_CPS :
+               LINE_LOST_CORNER_DIFFERENTIAL_CPS;
+    }
+
+    for (index = 0U; index < s_turnHistoryCount; ++index)
+    {
+        sum += s_turnHistory[index];
+    }
+    held = (s_turnHistoryCount != 0U) ?
+           (int16_t)(sum / (int32_t)s_turnHistoryCount) :
+           s_lastTrackingDifferentialCps;
+
+    if (LineMission_Abs(held) >= LINE_LOST_CORNER_THRESHOLD_CPS)
+    {
+        held = (held < 0) ? -LINE_LOST_CORNER_DIFFERENTIAL_CPS :
+                              LINE_LOST_CORNER_DIFFERENTIAL_CPS;
+    }
+    return held;
 }
 
 static void LineMission_VelocityWindowReset(LineVelocityWindow_t *window)
@@ -410,6 +502,8 @@ static void LineMission_WriteStatus(uint32_t nowMs)
     uint8_t index;
     uint8_t rawPressed = (GPIO_ReadInputDataBit(GPIOG, GPIO_Pin_10) == Bit_RESET) ?
                          1U : 0U;
+    uint8_t rawMaintenancePressed =
+        (GPIO_ReadInputDataBit(GPIOG, GPIO_Pin_9) == Bit_RESET) ? 1U : 0U;
 
     DiagUart_WriteString("LF,event=status,t_ms=");
     DiagUart_WriteUInt32(nowMs);
@@ -421,6 +515,17 @@ static void LineMission_WriteStatus(uint32_t nowMs)
     DiagUart_WriteUInt32(rawPressed);
     DiagUart_WriteString(",pg10_stable_pressed=");
     DiagUart_WriteUInt32(s_buttonStablePressed);
+    DiagUart_WriteString(",pg9_raw_pressed=");
+    DiagUart_WriteUInt32(rawMaintenancePressed);
+    DiagUart_WriteString(",pg9_hold_ms=");
+    DiagUart_WriteUInt32((s_maintenanceButtonPressed != 0U) ?
+                          (nowMs - s_maintenanceButtonSinceMs) : 0U);
+    DiagUart_WriteString(",maint_stationary_ms=");
+    DiagUart_WriteUInt32(nowMs - s_maintenanceStationarySinceMs);
+    DiagUart_WriteString(",maint_reset_id=");
+    DiagUart_WriteUInt32(s_maintenanceResetId);
+    DiagUart_WriteString(",maint_broadcast_left=");
+    DiagUart_WriteUInt32(s_maintenanceBroadcastRemaining);
     DiagUart_WriteString(",last_button_ms=");
     DiagUart_WriteUInt32(s_lastButtonPressMs);
     DiagUart_WriteString(",stable_mask=");
@@ -828,8 +933,12 @@ static uint8_t LineMission_SendCarPose(const CarPoseLinkState_t *pose)
     frame.payload[0] = pose->coordinateFrame;
     frame.payload[1] = poseFlags;
     LineMission_WriteU16Be(&frame.payload[2], pose->calibrationId);
-    LineMission_WriteU32Be(&frame.payload[4], (uint32_t)pose->xCm);
-    LineMission_WriteU32Be(&frame.payload[8], (uint32_t)pose->yCm);
+    /* Ground station uses the inverse planar axes. Apply the requested X/Y
+     * sign change only on this car-to-LoRa relay: yaw and both velocity fields
+     * retain their original convention. Unsigned subtraction safely encodes
+     * the two's-complement negative value for either input sign. */
+    LineMission_WriteU32Be(&frame.payload[4], 0U - (uint32_t)pose->xCm);
+    LineMission_WriteU32Be(&frame.payload[8], 0U - (uint32_t)pose->yCm);
     LineMission_WriteU16Be(&frame.payload[12], (uint16_t)pose->yawTenthsDeg);
     LineMission_WriteU16Be(&frame.payload[14], (uint16_t)pose->vxCmPerSec);
     LineMission_WriteU16Be(&frame.payload[16], (uint16_t)pose->vyCmPerSec);
@@ -845,17 +954,128 @@ static uint8_t LineMission_SendCarPose(const CarPoseLinkState_t *pose)
     return 1U;
 }
 
+static uint8_t LineMission_CarSlotDue(uint32_t nowMs)
+{
+    return ((s_radioPoseStarted == 0U) ||
+            ((uint32_t)(nowMs - s_lastRadioPoseTxMs) >=
+             LINE_RADIO_POSE_PERIOD_MS)) ? 1U : 0U;
+}
+
+static void LineMission_WriteMaintenanceEvent(const char *event,
+                                              const char *reason,
+                                              uint32_t nowMs)
+{
+    DiagUart_WriteString("LF,event=");
+    DiagUart_WriteString(event);
+    DiagUart_WriteString(",reason=");
+    DiagUart_WriteString(reason);
+    DiagUart_WriteString(",t_ms=");
+    DiagUart_WriteUInt32(nowMs);
+    DiagUart_WriteString(",reset_id=");
+    DiagUart_WriteUInt32(s_maintenanceResetId);
+    DiagUart_WriteString(",state=");
+    DiagUart_WriteString(LineMission_StateName());
+    DiagUart_WriteString("\r\n");
+}
+
+static uint8_t LineMission_RequestMaintenanceReset(uint32_t nowMs)
+{
+    if (LineMission_IsActive() != 0U)
+    {
+        LineMission_WriteMaintenanceEvent("maintenance_reset_rejected",
+                                          "CAR_RUNNING", nowMs);
+        return 0U;
+    }
+    if ((uint32_t)(nowMs - s_maintenanceStationarySinceMs) <
+        LINE_MAINTENANCE_STATIONARY_MS)
+    {
+        LineMission_WriteMaintenanceEvent("maintenance_reset_rejected",
+                                          "STOP_NOT_12S", nowMs);
+        return 0U;
+    }
+    if (s_maintenanceBroadcastRemaining != 0U)
+    {
+        LineMission_WriteMaintenanceEvent("maintenance_reset_rejected",
+                                          "BUSY", nowMs);
+        return 0U;
+    }
+
+    if (s_maintenanceNextResetId == 0U)
+    {
+        s_maintenanceNextResetId = 1U;
+    }
+    s_maintenanceResetId = s_maintenanceNextResetId;
+    /* Project decision: PG9 is a direct ground-station maintenance event.
+     * It does not write to UART4 or ask the radar/Pi to clear any state. */
+    s_maintenanceBroadcastSourceTimeMs = nowMs;
+    s_maintenanceBroadcastRemaining = LINE_MAINTENANCE_BROADCAST_COUNT;
+    s_maintenanceBroadcastSequence = s_radioSequence++;
+    ++s_maintenanceNextResetId;
+    if (s_maintenanceNextResetId == 0U)
+    {
+        s_maintenanceNextResetId = 1U;
+    }
+    LineMission_WriteMaintenanceEvent("maintenance_reset_queued",
+                                      "PG9_HOLD_DIRECT_GROUND", nowMs);
+    return 1U;
+}
+
+static uint8_t LineMission_SendMaintenanceResetRadio(uint32_t nowMs)
+{
+    V22Frame_t frame;
+    uint8_t encoded[V22_MAX_FRAME_BYTES];
+    uint16_t length;
+
+    (void)nowMs;
+
+    frame.version = V22_VERSION;
+    frame.type = V22_TYPE_MAINTENANCE_RESET;
+    frame.source = V22_ADDR_CAR_RADIO;
+    frame.destination = V22_ADDR_BROADCAST;
+    frame.sequence = s_maintenanceBroadcastSequence;
+    frame.flags = (s_maintenanceBroadcastRemaining <
+                   LINE_MAINTENANCE_BROADCAST_COUNT) ?
+                  V22_FRAME_FLAG_RETRANSMISSION : 0U;
+    frame.length = 8U;
+    LineMission_WriteU16Be(&frame.payload[0], s_maintenanceResetId);
+    frame.payload[2] = V22_MAINT_RESET_FLAG_CLEAR_CALIBRATION;
+    frame.payload[3] = 0U;
+    /* V2.3 requires the three copies to retain identical payload, sequence
+     * and ResetId.  Only the retransmission header flag changes. */
+    LineMission_WriteU32Be(&frame.payload[4], s_maintenanceBroadcastSourceTimeMs);
+    length = V22Protocol_Encode(encoded, sizeof(encoded), &frame);
+    if (length == 0U)
+    {
+        return 0U;
+    }
+    RobotUart_NanoWriteBuffer(encoded, length);
+    return 1U;
+}
+
 static void LineMission_UpdateRadioLink(uint32_t nowMs)
 {
     const CarPoseLinkState_t *pose;
 
     CarPoseLink_Poll(nowMs);
     pose = CarPoseLink_GetState();
+
+    if ((s_maintenanceBroadcastRemaining != 0U) &&
+        (LineMission_CarSlotDue(nowMs) != 0U))
+    {
+        if (LineMission_SendMaintenanceResetRadio(nowMs) != 0U)
+        {
+            --s_maintenanceBroadcastRemaining;
+            s_lastRadioPoseTxMs = nowMs;
+            s_radioPoseStarted = 1U;
+            LineMission_WriteMaintenanceEvent("maintenance_reset_radio_tx",
+                                              "V23_0X85", nowMs);
+        }
+        return;
+    }
+
     if (CarPoseLink_IsFresh(nowMs, LINE_RADIO_POSE_FRESH_MS) != 0U)
     {
-        if ((s_radioPoseStarted == 0U) ||
-            ((uint32_t)(nowMs - s_lastRadioPoseTxMs) >=
-             LINE_RADIO_POSE_PERIOD_MS))
+        if (LineMission_CarSlotDue(nowMs) != 0U)
         {
             if (LineMission_SendCarPose(pose) == 0U)
             {
@@ -883,7 +1103,9 @@ static void LineMission_ButtonInit(uint32_t nowMs)
 
     RCC_APB2PeriphClockCmd(RCC_APB2Periph_GPIOG, ENABLE);
     GPIO_StructInit(&gpio);
-    gpio.GPIO_Pin = GPIO_Pin_10; /* KEY2: PG10, active low. */
+    /* PG10 is the run key; PG9 is the dedicated V2.3 maintenance-reset
+     * key.  Both are active-low physical keys with internal pull-ups. */
+    gpio.GPIO_Pin = GPIO_Pin_9 | GPIO_Pin_10;
     gpio.GPIO_Mode = GPIO_Mode_IPU;
     gpio.GPIO_Speed = GPIO_Speed_2MHz;
     GPIO_Init(GPIOG, &gpio);
@@ -892,6 +1114,10 @@ static void LineMission_ButtonInit(uint32_t nowMs)
     s_buttonStablePressed = pressed;
     s_buttonCandidatePressed = pressed;
     s_buttonCandidateSinceMs = nowMs;
+    s_maintenanceButtonPressed =
+        (GPIO_ReadInputDataBit(GPIOG, GPIO_Pin_9) == Bit_RESET) ? 1U : 0U;
+    s_maintenanceButtonHandled = 0U;
+    s_maintenanceButtonSinceMs = nowMs;
 }
 
 static uint8_t LineMission_ButtonPressedEvent(uint32_t nowMs)
@@ -918,6 +1144,34 @@ static uint8_t LineMission_ButtonPressedEvent(uint32_t nowMs)
     return 0U;
 }
 
+static void LineMission_HandleMaintenanceButton(uint32_t nowMs)
+{
+    uint8_t rawPressed =
+        (GPIO_ReadInputDataBit(GPIOG, GPIO_Pin_9) == Bit_RESET) ? 1U : 0U;
+
+    if (rawPressed == 0U)
+    {
+        s_maintenanceButtonPressed = 0U;
+        s_maintenanceButtonHandled = 0U;
+        return;
+    }
+
+    if (s_maintenanceButtonPressed == 0U)
+    {
+        s_maintenanceButtonPressed = 1U;
+        s_maintenanceButtonSinceMs = nowMs;
+        return;
+    }
+
+    if ((s_maintenanceButtonHandled == 0U) &&
+        ((uint32_t)(nowMs - s_maintenanceButtonSinceMs) >=
+         LINE_MAINTENANCE_HOLD_MS))
+    {
+        s_maintenanceButtonHandled = 1U;
+        (void)LineMission_RequestMaintenanceReset(nowMs);
+    }
+}
+
 static void LineMission_ResetRunControllers(void)
 {
     Encoder_Reset();
@@ -933,6 +1187,7 @@ static void LineMission_ResetRunControllers(void)
     SpeedLadrc_Reset(&s_rightSpeed, 0.0f);
     s_holdDifferentialCps = 0;
     s_lastTrackingDifferentialCps = 0;
+    LineMission_ResetTurnHistory();
     s_normalLineCount = 0U;
     s_completeMarkCount = 0U;
     s_arcTerminalCandidateCount = 0U;
@@ -1094,7 +1349,7 @@ static void LineMission_UpdateRunState(uint32_t nowMs)
     if ((s_state == LINE_MISSION_TRACK) &&
         (s_observer.lineClass == LINE_OBSERVER_TRACK))
     {
-        s_lastTrackingDifferentialCps = s_observer.totalDifferentialCps;
+        LineMission_RecordTrackingTurn(nowMs);
     }
 
     if (s_state == LINE_MISSION_LEAVE_A)
@@ -1134,16 +1389,9 @@ static void LineMission_UpdateRunState(uint32_t nowMs)
 
     if (s_observer.lineClass == LINE_OBSERVER_LOST)
     {
-        /* The observer clears its error on a white mask; retain the last
-         * measured turn rather than blindly driving straight off a corner. */
-        s_holdDifferentialCps = s_lastTrackingDifferentialCps;
-        if (LineMission_Abs(s_holdDifferentialCps) >=
-            LINE_LOST_CORNER_THRESHOLD_CPS)
-        {
-            s_holdDifferentialCps = (s_holdDifferentialCps < 0) ?
-                                      -LINE_LOST_CORNER_DIFFERENTIAL_CPS :
-                                      LINE_LOST_CORNER_DIFFERENTIAL_CPS;
-        }
+        /* When an edge sample becomes all-white, keep that directed turn;
+         * otherwise use the recent three-frame steering history. */
+        s_holdDifferentialCps = LineMission_SelectLostHoldDifferential(nowMs);
         s_lostStartMs = nowMs;
         LineMission_EnterState(LINE_MISSION_LOST_HOLD, nowMs, "LINE_LOST");
         return;
@@ -1226,6 +1474,7 @@ void LineFollowMission_Init(uint32_t nowMs)
     s_stateStartMs = nowMs;
     s_runStartMs = nowMs;
     s_lostStartMs = nowMs;
+    s_maintenanceStationarySinceMs = nowMs;
     s_normalLineCount = 0U;
     s_completeMarkCount = 0U;
     s_arcTerminalCandidateCount = 0U;
@@ -1240,12 +1489,19 @@ void LineFollowMission_Init(uint32_t nowMs)
     s_lastRadioPoseTxMs = 0U;
     s_radioPoseTxCount = 0U;
     s_radioPoseDropCount = 0U;
+    s_maintenanceResetId = 0U;
+    s_maintenanceNextResetId = 1U;
+    s_maintenanceBroadcastRemaining = 0U;
+    s_maintenanceBroadcastSequence = 0U;
+    s_maintenanceBroadcastSourceTimeMs = 0U;
     s_frozenWriteIndex = 0U;
     s_frozenCount = 0U;
     s_frozen = 0U;
     s_lastButtonPressMs = 0U;
     s_lastReason = "BOOT";
     s_holdDifferentialCps = 0;
+    s_lastTrackingDifferentialCps = 0;
+    LineMission_ResetTurnHistory();
     s_targetLeftCps = 0;
     s_targetRightCps = 0;
     s_measuredLeftCps = 0;
@@ -1256,7 +1512,7 @@ void LineFollowMission_Init(uint32_t nowMs)
     s_rearRightRawPercent = 0;
     LineMission_MotorOff();
 
-    DiagUart_WriteString("LF,boot,mode=COMPETITION_LINE_FOLLOW,start_key=PG10_active_low,");
+    DiagUart_WriteString("LF,boot,mode=COMPETITION_LINE_FOLLOW,start_key=PG10_active_low,maint_key=PG9_hold2s_after_stop12s_direct_ground,");
     DiagUart_WriteString("gray=pc0_pc1_pc2_pg0,white_raw=0,center_mask=24,");
     DiagUart_WriteString("front=pa2_pa3_pe2_pe6,rear=pe13_pe14_pf1_pf4_pb9,enc_front=tim5_tim3,rear=open_loop_follower,");
     DiagUart_WriteString("forward_sign=fl-1_fr-1_rl+1_rr-1,gyro=usart2_remap_pd5_tx_pd6_rx_9600,pi_pose=uart4_v22_31_to_32,");
@@ -1267,7 +1523,7 @@ void LineFollowMission_Init(uint32_t nowMs)
     DiagUart_WriteString(",gyro_required=");
     DiagUart_WriteUInt32(LINE_REQUIRE_GYRO_FOR_START);
     DiagUart_WriteString(",radio=pose80_10hz_if_fresh_else_idle_hb03_500ms,task_request=disabled\r\n");
-    DiagUart_WriteString("LF,commands,P=status,F=dump_frozen,S=manual_stop,H=help; start_only=PG10\r\n");
+    DiagUart_WriteString("LF,commands,P=status,F=dump_frozen,S=manual_stop,H=help; start=PG10,maint_event=PG9_hold2s\r\n");
 }
 
 void LineFollowMission_Update(uint32_t nowMs)
@@ -1276,6 +1532,11 @@ void LineFollowMission_Update(uint32_t nowMs)
 
     LineMission_UpdateRadioLink(nowMs);
     LineMission_HandleButton(nowMs);
+    if (LineMission_IsActive() != 0U)
+    {
+        s_maintenanceStationarySinceMs = nowMs;
+    }
+    LineMission_HandleMaintenanceButton(nowMs);
 
     samplePeriodMs = nowMs - s_lastControlMs;
     if (samplePeriodMs < LINE_CONTROL_PERIOD_MS)
@@ -1346,7 +1607,7 @@ void LineFollowMission_HandleCommand(char command, uint32_t nowMs)
         case 'H':
         case 'h':
         case '?':
-            DiagUart_WriteString("LF,commands,P=status,F=dump_frozen,S=manual_stop,H=help; start_only=PG10\r\n");
+            DiagUart_WriteString("LF,commands,P=status,F=dump_frozen,S=manual_stop,H=help; start=PG10,maint_event=PG9_hold2s_after_stop12s\r\n");
             break;
         default:
             break;

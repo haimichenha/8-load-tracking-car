@@ -21,6 +21,10 @@ typedef struct
     uint8_t valid;
     uint8_t sourceFormat;
     uint8_t sequence;
+    uint8_t lastAckRequestType;
+    uint8_t lastAckRequestSeq;
+    uint8_t lastAckResult;
+    uint8_t lastAckDetail;
     uint8_t coordinateFrame;
     uint8_t poseFlags;
     uint16_t calibrationId;
@@ -35,6 +39,8 @@ typedef struct
     uint32_t validFrameCount;
     uint32_t v22FrameCount;
     uint32_t legacyFrameCount;
+    uint32_t ackFrameCount;
+    uint32_t ackInvalidFrameCount;
     uint32_t invalidFrameCount;
     uint32_t legacyInvalidFrameCount;
     uint32_t versionErrorCount;

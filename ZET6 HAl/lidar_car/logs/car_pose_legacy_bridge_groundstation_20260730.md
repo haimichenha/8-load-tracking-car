@@ -47,3 +47,21 @@ t=11945 ms: pi_pose_raw_bytes=2630, pi_pose_legacy_ok=68,
    未授权坐标偏置。
 3. Pi 仍需升级为 `src=0x31,dst=0x32,len=22` 的原生 V2.2 入口，提供真实 `SourceTimeMs`、速度及校准 ID。
 4. Pi 校准闭环后，再验收 `CALIBRATED=1`、固定非零 `CalibrationId`、10 Hz 时隙和任务请求。
+
+## 冷启动回归（后续）
+
+一次 MCU 上电后，UART4 端仍为连续健康：`legacy_ok=1235, legacy_bad=0, uart_err=0, ring_ovf=0`，
+且 `X=-468 cm,Y=-174 cm,yaw=62.3°` 直接来自 `FA010001D4010000AE0000026FAB`。地面站却保持
+`car_age` 过期，原因是旧兼容路径把 MCU boot uptime 当作 `SourceTimeMs`；雷达延迟开始输出后，地面站把
+小于上一会话的时间判为 stale。
+
+修复为“首个有效旧帧起的 MCU 转发 epoch”后，重新下载不重启地面站即恢复：
+
+```text
+MCU: t=16209 ms, radio_pose_tx=162, legacy_ok=324, bad=0, uart_err=0,
+     x=-472 cm, y=-167 cm, source_time=16146 ms, age=19 ms
+Ground station: car_age=0.000 s，10 s 内有效帧约 +120
+```
+
+本回归证明车端冷启动的 freshness 问题已修复；负的大坐标是 Pi 原始输入，待 Pi 雷达零位核查，不能由
+STM32 端私自偏移修正。

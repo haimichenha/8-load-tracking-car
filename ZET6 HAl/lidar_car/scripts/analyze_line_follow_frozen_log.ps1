@@ -66,6 +66,11 @@ Get-Content -LiteralPath $Path | ForEach-Object {
         MeasL = [int]$field['meas_l']; MeasR = [int]$field['meas_r']
         CmdL = [int]$field['cmd_l']; CmdR = [int]$field['cmd_r']
         GyroFresh = [int]$field['gyro_fresh']
+        CenterCapture = if ($field.ContainsKey('center_capture')) {
+            [int]$field['center_capture']
+        } else {
+            0
+        }
     }
 }
 
@@ -89,6 +94,8 @@ $maxAbsGrayError = ($records | ForEach-Object { [math]::Abs($_.ErrorX100) } |
 $maxAbsHeadingError = ($records | ForEach-Object { [math]::Abs($_.HeadingError) } |
                        Measure-Object -Maximum).Maximum
 $gyroStale = @($records | Where-Object { $_.GyroFresh -eq 0 }).Count
+$centerCaptureRecords = @($records | Where-Object { $_.CenterCapture -ne 0 }).Count
+$edgeRecords = @($records | Where-Object { [math]::Abs($_.ErrorX100) -ge 400 }).Count
 $maxCommand = ($records | ForEach-Object { [math]::Max($_.CmdL, $_.CmdR) } |
                Measure-Object -Maximum).Maximum
 
@@ -99,6 +106,8 @@ Write-Output ('RECORDS={0}, FIRST_MS={1}, LAST_MS={2}, WINDOW_MS={3}' -f
 Write-Output ('TERMINAL_REASON={0}' -f $terminalReason)
 Write-Output ('TRACK_RECORDS={0}, GYRO_STALE_RECORDS={1}, MAX_ABS_GRAY_ERR_X100={2}, MAX_ABS_HEADING_ERR_TENTHS={3}, MAX_COMMAND_PCT={4}' -f
               $tracking.Count, $gyroStale, $maxAbsGrayError, $maxAbsHeadingError, $maxCommand)
+Write-Output ('CENTER_CAPTURE_RECORDS={0}, EDGE_RECORDS_ABS_ERR_GE_400={1}, EDGE_RECORD_RATIO={2:P1}' -f
+              $centerCaptureRecords, $edgeRecords, ($edgeRecords / [double]$records.Count))
 Write-Output ('MEAN_TRACK_TARGET_L_CPS={0:N1}, MEAN_TRACK_MEAS_L_CPS={1:N1}, MEAN_TRACK_TARGET_R_CPS={2:N1}, MEAN_TRACK_MEAS_R_CPS={3:N1}' -f
               (Mean $tracking { param($r) $r.TargetL }), (Mean $tracking { param($r) $r.MeasL }),
               (Mean $tracking { param($r) $r.TargetR }), (Mean $tracking { param($r) $r.MeasR }))
