@@ -119,6 +119,42 @@
             }
         },
         {
+            "name": "LineFollowMissionDebug",
+            "inherits": "default",
+            "cacheVariables": {
+                "CMAKE_BUILD_TYPE": "Debug",
+                "LIDAR_CAR_MAIN_SOURCE": "${sourceDir}/Src/main_line_follow_mission.c",
+                "GYRO_BAUDRATE_VALUE": "9600",
+                "LORA_UART_BAUDRATE_VALUE": "115200",
+                "LINE_REQUIRE_GYRO_FOR_START_VALUE": "1",
+                "LINE_BASE_SPEED_MM_S_VALUE": "600"
+            }
+        },
+        {
+            "name": "LineFollowJY901Debug",
+            "inherits": "default",
+            "cacheVariables": {
+                "CMAKE_BUILD_TYPE": "Debug",
+                "LIDAR_CAR_MAIN_SOURCE": "${sourceDir}/Src/main_line_follow_mission.c",
+                "GYRO_BAUDRATE_VALUE": "9600",
+                "LORA_UART_BAUDRATE_VALUE": "115200",
+                "LINE_REQUIRE_GYRO_FOR_START_VALUE": "1",
+                "LINE_BASE_SPEED_MM_S_VALUE": "600"
+            }
+        },
+        {
+            "name": "LineFollowNoGyroDebug",
+            "inherits": "default",
+            "cacheVariables": {
+                "CMAKE_BUILD_TYPE": "Debug",
+                "LIDAR_CAR_MAIN_SOURCE": "${sourceDir}/Src/main_line_follow_mission.c",
+                "GYRO_BAUDRATE_VALUE": "9600",
+                "LORA_UART_BAUDRATE_VALUE": "115200",
+                "LINE_REQUIRE_GYRO_FOR_START_VALUE": "0",
+                "LINE_BASE_SPEED_MM_S_VALUE": "400"
+            }
+        },
+        {
             "name": "LoRaProtocolDebug",
             "inherits": "default",
             "cacheVariables": {
@@ -185,6 +221,18 @@
         {
             "name": "GrayTrackingDebug",
             "configurePreset": "GrayTrackingDebug"
+        },
+        {
+            "name": "LineFollowMissionDebug",
+            "configurePreset": "LineFollowMissionDebug"
+        },
+        {
+            "name": "LineFollowJY901Debug",
+            "configurePreset": "LineFollowJY901Debug"
+        },
+        {
+            "name": "LineFollowNoGyroDebug",
+            "configurePreset": "LineFollowNoGyroDebug"
         },
         {
             "name": "LoRaProtocolDebug",

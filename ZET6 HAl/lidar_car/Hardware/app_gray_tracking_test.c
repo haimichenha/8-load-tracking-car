@@ -1,5 +1,6 @@
 #include "app_gray_tracking_test.h"
 
+#include "app_line_follow_control.h"
 #include "bsp_diag_uart.h"
 #include "bsp_gray_tracking.h"
 
@@ -27,6 +28,7 @@ static uint8_t s_streamEnabled;
 static uint8_t s_mark;
 static uint8_t s_activeCount;
 static int16_t s_errorX100;
+static LineFollowController_t s_lineController;
 static uint32_t s_lastSampleMs;
 static uint32_t s_lastReportMs;
 
@@ -134,21 +136,24 @@ static void GrayTracking_UpdateLineObservation(void)
     s_activeCount = GrayTracking_CountActiveBits(s_stableMask);
     s_errorX100 = 0;
 
-    if ((s_whiteValid == 0U) || (s_stableMask == 0U) ||
-        (s_stableMask == GRAY_FULL_MASK))
+    if ((s_whiteValid != 0U) && (s_stableMask != 0U) &&
+        (s_stableMask != GRAY_FULL_MASK))
     {
-        return;
-    }
-
-    for (channel = 0U; channel < 8U; ++channel)
-    {
-        if ((s_stableMask & (uint8_t)(1U << channel)) != 0U)
+        for (channel = 0U; channel < 8U; ++channel)
         {
-            weightedSum += s_channelWeight[channel];
+            if ((s_stableMask & (uint8_t)(1U << channel)) != 0U)
+            {
+                weightedSum += s_channelWeight[channel];
+            }
         }
+        s_errorX100 = (int16_t)((weightedSum * 100) / (int16_t)s_activeCount);
     }
 
-    s_errorX100 = (int16_t)((weightedSum * 100) / (int16_t)s_activeCount);
+    LineFollowControl_Update(&s_lineController,
+                             s_whiteValid,
+                             s_stableMask,
+                             s_activeCount,
+                             s_errorX100);
 }
 
 static void GrayTracking_WriteRecord(const char *event, uint32_t nowMs)
@@ -176,6 +181,16 @@ static void GrayTracking_WriteRecord(const char *event, uint32_t nowMs)
     DiagUart_WriteUInt32(s_activeCount);
     DiagUart_WriteString(",err_x100,");
     DiagUart_WriteInt32((int32_t)s_errorX100);
+    DiagUart_WriteString(",ctrl_state,");
+    DiagUart_WriteString(LineFollowControl_StateName(&s_lineController));
+    DiagUart_WriteString(",target_vx,");
+    DiagUart_WriteInt32((int32_t)s_lineController.baseForwardCommand);
+    DiagUart_WriteString(",steer_demand,");
+    DiagUart_WriteInt32((int32_t)s_lineController.steerDemand);
+    DiagUart_WriteString(",steer_dir,");
+    DiagUart_WriteString(LineFollowControl_SteerName(&s_lineController));
+    DiagUart_WriteString(",motor_permit,");
+    DiagUart_WriteUInt32(s_lineController.motorPermit);
     DiagUart_WriteString(",cal,");
     DiagUart_WriteUInt32(calFlags);
     DiagUart_WriteString(",mark,");
@@ -212,6 +227,7 @@ static void GrayTracking_CaptureReference(uint8_t black, uint32_t nowMs)
 static void GrayTracking_Sample(uint32_t nowMs)
 {
     uint8_t previousMask = s_stableMask;
+    uint8_t stableChanged = 0U;
 
     GrayTracking_Read(&s_sample);
     s_rawMask = s_sample.rawMask;
@@ -231,13 +247,14 @@ static void GrayTracking_Sample(uint32_t nowMs)
         (s_stableMask != s_candidateMask))
     {
         s_stableMask = s_candidateMask;
-        if (previousMask != s_stableMask)
-        {
-            GrayTracking_WriteRecord("trigger_change", nowMs);
-        }
+        stableChanged = 1U;
     }
 
     GrayTracking_UpdateLineObservation();
+    if ((stableChanged != 0U) && (previousMask != s_stableMask))
+    {
+        GrayTracking_WriteRecord("trigger_change", nowMs);
+    }
 }
 
 void GrayTrackingTest_Init(uint32_t nowMs)
@@ -257,10 +274,12 @@ void GrayTrackingTest_Init(uint32_t nowMs)
     s_mark = 0U;
     s_activeCount = 0U;
     s_errorX100 = 0;
+    LineFollowControl_Init(&s_lineController);
+    GrayTracking_UpdateLineObservation();
     s_lastSampleMs = nowMs;
     s_lastReportMs = nowMs;
 
-    DiagUart_WriteString("GRAY,boot,pins=pc0_ad0_pc1_ad1_pc2_ad2_pg0_out,mode=mux8_error_diag,motors=off\r\n");
+    DiagUart_WriteString("GRAY,boot,pins=pc0_ad0_pc1_ad1_pc2_ad2_pg0_out,mode=mux8_control_dryrun,motors=off\r\n");
     DiagUart_WriteString("GRAY,commands,W=all_white,K=black_snapshot,R=sample,F=freeze,1-8=mark,L=stream,H=help\r\n");
 }
 

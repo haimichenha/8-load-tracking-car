@@ -1,6 +1,7 @@
 #include "bsp_robot_uart.h"
 
 static uint16_t s_nanoErrorFlags;
+static uint16_t s_radarErrorFlags;
 
 static void RobotUart_InitPeripheral(USART_TypeDef *uart, uint32_t baudrate)
 {
@@ -113,6 +114,64 @@ void RobotUart_ServoWriteString(const char *text)
 uint8_t RobotUart_ServoTryReadByte(uint8_t *byte)
 {
     return RobotUart_TryReadByte(UART4, byte);
+}
+
+void RobotUart_RadarInit(uint32_t baudrate)
+{
+    RobotUart_ServoInit(baudrate);
+    s_radarErrorFlags = 0U;
+}
+
+uint8_t RobotUart_RadarTryReadByte(uint8_t *byte)
+{
+    uint16_t status;
+    uint16_t errors;
+
+    if (byte == 0)
+    {
+        return 0U;
+    }
+
+    status = UART4->SR;
+    errors = (uint16_t)(status & (USART_FLAG_PE |
+                                  USART_FLAG_FE |
+                                  USART_FLAG_NE |
+                                  USART_FLAG_ORE));
+    if ((errors & USART_FLAG_PE) != 0U)
+    {
+        s_radarErrorFlags |= ROBOT_UART_ERROR_PARITY;
+    }
+    if ((errors & USART_FLAG_FE) != 0U)
+    {
+        s_radarErrorFlags |= ROBOT_UART_ERROR_FRAMING;
+    }
+    if ((errors & USART_FLAG_NE) != 0U)
+    {
+        s_radarErrorFlags |= ROBOT_UART_ERROR_NOISE;
+    }
+    if ((errors & USART_FLAG_ORE) != 0U)
+    {
+        s_radarErrorFlags |= ROBOT_UART_ERROR_OVERRUN;
+    }
+
+    if ((status & USART_FLAG_RXNE) == 0U)
+    {
+        if (errors != 0U)
+        {
+            (void)UART4->DR;
+        }
+        return 0U;
+    }
+
+    *byte = (uint8_t)UART4->DR;
+    return 1U;
+}
+
+uint16_t RobotUart_RadarConsumeErrorFlags(void)
+{
+    uint16_t flags = s_radarErrorFlags;
+    s_radarErrorFlags = 0U;
+    return flags;
 }
 
 void RobotUart_BluetoothInit(uint32_t baudrate)

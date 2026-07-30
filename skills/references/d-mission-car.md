@@ -25,9 +25,13 @@ for vehicle motion.
 - Publish `CAR_POSE` only when position, calibration, and yaw validity bits
   are truthful. Use one nonzero `CalibrationId` for a task and never change it
   during that task.
-- Pi-to-MCU is a local 115200 8N1 V2.2 link at 10 Hz. The MCU must validate
-  length, CRC, source/destination, sequence, freshness, and calibration before
-  forwarding to LoRa.
+- Pi-to-MCU local pose ingress for the current line-follow test uses UART4
+  (`PC11=MCU RX`) at 115200 8N1. The current Pi bridge emits only valid pose
+  samples as the 14-byte `FA | sign+x[3] | sign+y[3] | sign+yaw10[3] | AB`
+  frame at 20 Hz; X/Y are cm and yaw is 0.1 degree. The STM32 validates framing,
+  sign bytes, yaw range, UART errors and a 250 ms freshness gate. This bridge
+  packet is local telemetry, not a V2.2 wireless packet. Current radar SSH:
+  `ubuntu@192.168.0.131` (DHCP field address; revalidate before use).
 
 ## 3. LoRa V2.2 Contract
 
@@ -58,8 +62,12 @@ restart the car line-following state machine.
 ## 5. Motion Policy
 
 1. The physical button starts the selected task and the car motion sequence.
-2. Use gray line tracking as the primary path error. Use encoder inner loops
-   for wheel speed and bounded gyro correction for heading.
+2. Use gray line tracking as the primary path error. The current field image
+   uses encoder LADRC inner loops for wheel speed and bounded direct JY901 yaw
+   plus derived yaw-rate correction for heading. UART4 Pi radar pose is logged
+   as a future back-up interface only; do not mix yaw sources or invent a
+   map-to-line lateral correction before field geometry and source fusion are
+   calibrated.
 3. Measure the A-to-B course repeatedly and choose a target with margin below
    the required 15 s after the car begins moving. The target may be slower than
    later straight segments only if it still meets that deadline.

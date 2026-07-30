@@ -27,8 +27,9 @@ before changing either one.
 
 - The gray module uses `PC0/PC1/PC2` as GPIO address outputs `AD0/AD1/AD2`
   and `PG0` as selected digital `OUT`; PG1 is unused. It is a 74HC4051-style
-  eight-channel mux, not an ADC array. Capture the all-white mask and then
-  obtain X1--X8 physical-position evidence before controller work.
+  eight-channel mux, not an ADC array. The full X1--X8 mapping, white/black
+  polarity, centered `X4|X5`, and left/right error sign are verified. The
+  remaining gray work is lost-line/wide-line policy and motor-actuation tests.
 - Front TB6612 is the proven drive chain: PWM `PA2/PA3`, direction `PE2-PE5`,
   and `PE6` STBY. Front encoders use `TIM5 PA0/PA1` and `TIM3 PA6/PA7`.
 - The present rear TB6612 bench definition uses `PE13/PE14` PWM,
@@ -45,6 +46,16 @@ before changing either one.
   circumference, final speed limits, and gray lost-line/wide-line policy remain
   hardware decisions. The flight controller owns MaixCam ModeSeq/session
   control; do not manufacture a car-side camera interface.
+- `LineFollowJY901Debug` completed one physical lap on 2026-07-30: KEY2/PG10
+  gates motion; gray supplies nonlinear differential/yaw-rate reference; direct
+  WIT/JY901 yaw supplies bounded correction; and the front encoders feed two
+  600 mm/s nominal LADRC loops. The evidence log is
+  `logs/line_follow_frozen_20260730-170644.log`. The lap was manually stopped:
+  automatic return-to-A detection remains unverified because the curved A-end
+  marker did not hold stable `0xFF`. Do not raise speed or claim final field
+  acceptance until that stop gate is repaired and repeated. The image sends only
+  one V2.2 heartbeat placeholder at start, never a formal task request; radar
+  pose remains outside this control loop.
 
 ## Documentation And Evidence
 

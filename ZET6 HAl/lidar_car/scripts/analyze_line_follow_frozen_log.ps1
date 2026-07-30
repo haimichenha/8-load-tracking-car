@@ -1,0 +1,130 @@
+[CmdletBinding()]
+param(
+    [Parameter(Mandatory = $true)]
+    [string]$Path,
+    [switch]$GyroRequired
+)
+
+$ErrorActionPreference = 'Stop'
+
+if (-not (Test-Path -LiteralPath $Path))
+{
+    throw "Log not found: $Path"
+}
+
+$records = @()
+$events = @{}
+$terminalReason = 'UNKNOWN'
+
+Get-Content -LiteralPath $Path | ForEach-Object {
+    $line = $_
+    $start = $line.IndexOf('LF,')
+    if ($start -lt 0) { return }
+    $line = $line.Substring($start)
+    $parts = $line -split ','
+    if (($parts.Length -lt 2) -or ($parts[0] -ne 'LF')) { return }
+
+    if (($parts[1] -like 'event=*') -and ($parts.Length -ge 2))
+    {
+        $name = $parts[1].Substring(6)
+        if ($events.ContainsKey($name)) { $events[$name] += 1 }
+        else { $events[$name] = 1 }
+        if ($name -eq 'dump_begin')
+        {
+            foreach ($part in $parts)
+            {
+                if ($part -like 'reason=*')
+                {
+                    $terminalReason = $part.Substring(7)
+                    break
+                }
+            }
+        }
+        return
+    }
+    if (($parts[1] -ne 'rec') -or (($parts.Length % 2) -ne 0)) { return }
+
+    $field = @{}
+    for ($index = 2; ($index + 1) -lt $parts.Length; $index += 2)
+    {
+        $field[$parts[$index]] = $parts[$index + 1]
+    }
+    $required = @('t_ms','state','class','err_x100','yaw_ref','yaw','yaw_rate',
+                  'heading_err','total_diff','target_l','target_r','meas_l',
+                  'meas_r','cmd_l','cmd_r','gyro_fresh')
+    if (($required | Where-Object { -not $field.ContainsKey($_) }).Count -ne 0)
+    {
+        return
+    }
+    $records += [pscustomobject]@{
+        TimeMs = [int]$field['t_ms']; State = [int]$field['state']
+        LineClass = [int]$field['class']; ErrorX100 = [int]$field['err_x100']
+        YawRef = [int]$field['yaw_ref']; Yaw = [int]$field['yaw']
+        YawRate = [int]$field['yaw_rate']
+        HeadingError = [int]$field['heading_err']; TotalDiff = [int]$field['total_diff']
+        TargetL = [int]$field['target_l']; TargetR = [int]$field['target_r']
+        MeasL = [int]$field['meas_l']; MeasR = [int]$field['meas_r']
+        CmdL = [int]$field['cmd_l']; CmdR = [int]$field['cmd_r']
+        GyroFresh = [int]$field['gyro_fresh']
+    }
+}
+
+if ($records.Count -eq 0)
+{
+    throw 'No LF,rec frozen records found. Use capture_line_follow_frozen_log.ps1 after the car has stopped.'
+}
+
+function Mean([object[]]$items, [scriptblock]$selector)
+{
+    if ($items.Count -eq 0) { return 0.0 }
+    return (($items | ForEach-Object { & $selector $_ } | Measure-Object -Average).Average)
+}
+
+$tracking = @($records | Where-Object { $_.State -eq 3 })
+$absSpeedError = @($tracking | ForEach-Object {
+    [math]::Abs($_.TargetL - $_.MeasL) + [math]::Abs($_.TargetR - $_.MeasR)
+})
+$maxAbsGrayError = ($records | ForEach-Object { [math]::Abs($_.ErrorX100) } |
+                    Measure-Object -Maximum).Maximum
+$maxAbsHeadingError = ($records | ForEach-Object { [math]::Abs($_.HeadingError) } |
+                       Measure-Object -Maximum).Maximum
+$gyroStale = @($records | Where-Object { $_.GyroFresh -eq 0 }).Count
+$maxCommand = ($records | ForEach-Object { [math]::Max($_.CmdL, $_.CmdR) } |
+               Measure-Object -Maximum).Maximum
+
+Write-Output "LINE_FOLLOW_LOG=$Path"
+Write-Output ('RECORDS={0}, FIRST_MS={1}, LAST_MS={2}, WINDOW_MS={3}' -f
+              $records.Count, $records[0].TimeMs, $records[-1].TimeMs,
+              ($records[-1].TimeMs - $records[0].TimeMs))
+Write-Output ('TERMINAL_REASON={0}' -f $terminalReason)
+Write-Output ('TRACK_RECORDS={0}, GYRO_STALE_RECORDS={1}, MAX_ABS_GRAY_ERR_X100={2}, MAX_ABS_HEADING_ERR_TENTHS={3}, MAX_COMMAND_PCT={4}' -f
+              $tracking.Count, $gyroStale, $maxAbsGrayError, $maxAbsHeadingError, $maxCommand)
+Write-Output ('MEAN_TRACK_TARGET_L_CPS={0:N1}, MEAN_TRACK_MEAS_L_CPS={1:N1}, MEAN_TRACK_TARGET_R_CPS={2:N1}, MEAN_TRACK_MEAS_R_CPS={3:N1}' -f
+              (Mean $tracking { param($r) $r.TargetL }), (Mean $tracking { param($r) $r.MeasL }),
+              (Mean $tracking { param($r) $r.TargetR }), (Mean $tracking { param($r) $r.MeasR }))
+Write-Output ('GYRO_REQUIRED={0}' -f [int]$GyroRequired.IsPresent)
+if ($absSpeedError.Count -ne 0)
+{
+    Write-Output ('MEAN_TRACK_WHEEL_ERROR_SUM_CPS={0:N1}' -f (($absSpeedError | Measure-Object -Average).Average))
+}
+Write-Output 'EVENT_COUNTS:'
+$events.GetEnumerator() | Sort-Object Name | ForEach-Object {
+    Write-Output ('{0}={1}' -f $_.Key, $_.Value)
+}
+
+if ($GyroRequired.IsPresent -and ($gyroStale -ne 0))
+{
+    Write-Output 'VERDICT=FAIL_GYRO_STALE'
+}
+elseif ($tracking.Count -lt 10)
+{
+    Write-Output 'VERDICT=INCOMPLETE_TRACK_WINDOW'
+}
+elseif (($absSpeedError | Measure-Object -Average).Average -gt 900.0)
+{
+    Write-Output 'VERDICT=REVIEW_SPEED_LOOP'
+}
+else
+{
+    Write-Output 'VERDICT=REVIEW_LINE_GEOMETRY_AND_STEER_SIGN'
+}

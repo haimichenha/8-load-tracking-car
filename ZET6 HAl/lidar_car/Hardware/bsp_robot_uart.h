@@ -3,12 +3,18 @@
 
 #include "stm32f10x.h"
 
-/* UART4: PC10=TX, PC11=RX, ZL bus-servo controller. */
+/* UART4: PC10=TX, PC11=RX.  Servo expansion or Pi radar pose, never both. */
 void RobotUart_ServoInit(uint32_t baudrate);
 void RobotUart_ServoWriteByte(uint8_t byte);
 void RobotUart_ServoWriteBuffer(const uint8_t *data, uint16_t length);
 void RobotUart_ServoWriteString(const char *text);
 uint8_t RobotUart_ServoTryReadByte(uint8_t *byte);
+
+/* Competition line-follow ownership: Pi pose bridge at 115200 8N1.
+ * PC10 is MCU TX (reserved); PC11 is MCU RX <- Pi /dev/mcu_usb TX. */
+void RobotUart_RadarInit(uint32_t baudrate);
+uint8_t RobotUart_RadarTryReadByte(uint8_t *byte);
+uint16_t RobotUart_RadarConsumeErrorFlags(void);
 
 /* USART3 full remap: PD8=TX, PD9=RX, Bluetooth module. */
 void RobotUart_BluetoothInit(uint32_t baudrate);

@@ -12,6 +12,7 @@
 
 #include "bsp_aux_tb6612.h"
 #include "bsp_diag_uart.h"
+#include "bsp_four_wheel_direction.h"
 #include "bsp_motor.h"
 
 #define DRIVE_MS           4000U
@@ -19,12 +20,6 @@
 #define LOG_PERIOD_MS       250U
 #define IDLE_LOG_MS        1000U
 #define AUTO_START_MS      1000U
-
-/* Physical forward calibration from the PB9 four-wheel test. */
-#define FRONT_LEFT_FORWARD_SIGN   (-1)
-#define FRONT_RIGHT_FORWARD_SIGN  (-1)
-#define REAR_LEFT_FORWARD_SIGN    (+1)
-#define REAR_RIGHT_FORWARD_SIGN   (-1)
 
 typedef enum
 {

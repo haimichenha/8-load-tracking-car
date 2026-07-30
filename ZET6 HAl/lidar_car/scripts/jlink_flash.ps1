@@ -1,6 +1,8 @@
 param(
-    [ValidateSet('Debug', 'Release', 'BluetoothMotorDebug', 'BluetoothMotor115200Debug', 'BluetoothMotorDriveDebug', 'ServoUartTestDebug', 'BluetoothCarArmDebug', 'PwmGyroSweepDebug', 'FourWheelTb6612Debug', 'FrontTb6612DirectTestDebug', 'GrayTrackingDebug', 'LoRaProtocolDebug', 'LoRaProtocol9600Debug')]
-    [string]$Configuration = 'Debug'
+    [ValidateSet('Debug', 'Release', 'BluetoothMotorDebug', 'BluetoothMotor115200Debug', 'BluetoothMotorDriveDebug', 'ServoUartTestDebug', 'BluetoothCarArmDebug', 'PwmGyroSweepDebug', 'FourWheelTb6612Debug', 'FrontTb6612DirectTestDebug', 'GrayTrackingDebug', 'LineFollowMissionDebug', 'LineFollowJY901Debug', 'LineFollowNoGyroDebug', 'LoRaProtocolDebug', 'LoRaProtocol9600Debug')]
+    [string]$Configuration = 'Debug',
+    [ValidateRange(50, 4000)]
+    [int]$SwdSpeedKhz = 1000
 )
 
 $ErrorActionPreference = 'Stop'
@@ -51,7 +53,7 @@ try
 
     Remove-Item -LiteralPath $serverLog,$serverErrorLog -Force -ErrorAction SilentlyContinue
     $serverProcess = Start-Process -FilePath $gdbServer `
-        -ArgumentList @('-s','-if','SWD','-device','STM32F103ZE','-speed','1000','-endian','little','-novd','-port','2331') `
+        -ArgumentList @('-s','-if','SWD','-device','STM32F103ZE','-speed',"$SwdSpeedKhz",'-endian','little','-novd','-port','2331') `
         -PassThru -WindowStyle Hidden `
         -RedirectStandardOutput $serverLog -RedirectStandardError $serverErrorLog
     Start-Sleep -Seconds 2

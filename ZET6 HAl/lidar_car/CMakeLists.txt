@@ -55,15 +55,29 @@ set(BLUETOOTH_BAUDRATE_VALUE
     "9600"
     CACHE STRING "USART3 Bluetooth baud rate")
 
+set(RADAR_POSE_UART_BAUDRATE_VALUE
+    "115200"
+    CACHE STRING "UART4 PC10/PC11 Pi radar-pose bridge baud rate")
+
 set(GYRO_BAUDRATE_VALUE
     "9600"
-    CACHE STRING "USART2-remapped PD5/PD6 WIT gyro baud rate")
+    CACHE STRING "USART2 remap PD5/PD6 direct JY901 baud rate")
 
 # UART5 V2.2 wireless target rate.  The 9600 preset is a non-mission
 # diagnostic only, for detecting an unconfigured transparent radio.
 set(LORA_UART_BAUDRATE_VALUE
     "115200"
     CACHE STRING "UART5 LoRa protocol diagnostic baud rate")
+
+# Line-follow field-test policy. The current production candidate requires a
+# fresh direct JY901 angle frame; UART4 radar pose remains a separate back-up.
+set(LINE_REQUIRE_GYRO_FOR_START_VALUE
+    "1"
+    CACHE STRING "1=require fresh direct JY901 before motion, 0=gray-only diagnostic")
+
+set(LINE_BASE_SPEED_MM_S_VALUE
+    "600"
+    CACHE STRING "Nominal line-follow base speed in mm/s")
 
 # Sources
 set(sources_SRCS
@@ -75,18 +89,25 @@ set(sources_SRCS
 	${CMAKE_CURRENT_SOURCE_DIR}/Library/stm32f10x_tim.c
 	${CMAKE_CURRENT_SOURCE_DIR}/Library/stm32f10x_adc.c
 	${CMAKE_CURRENT_SOURCE_DIR}/Library/stm32f10x_usart.c
+	${CMAKE_CURRENT_SOURCE_DIR}/Library/misc.c
 	${CMAKE_CURRENT_SOURCE_DIR}/Hardware/bsp_l298n.c
 	${CMAKE_CURRENT_SOURCE_DIR}/Hardware/bsp_motor.c
 	${CMAKE_CURRENT_SOURCE_DIR}/Hardware/bsp_aux_tb6612.c
 	${CMAKE_CURRENT_SOURCE_DIR}/Hardware/app_four_wheel_tb6612_test.c
 	${CMAKE_CURRENT_SOURCE_DIR}/Hardware/bsp_diag_uart.c
 	${CMAKE_CURRENT_SOURCE_DIR}/Hardware/bsp_robot_uart.c
+	${CMAKE_CURRENT_SOURCE_DIR}/Hardware/bsp_radar_pose.c
 	${CMAKE_CURRENT_SOURCE_DIR}/Hardware/bsp_v22_protocol.c
 	${CMAKE_CURRENT_SOURCE_DIR}/Hardware/bsp_gyro_wit.c
+	${CMAKE_CURRENT_SOURCE_DIR}/Hardware/bsp_encoder.c
 	${CMAKE_CURRENT_SOURCE_DIR}/Hardware/bsp_gray_tracking.c
 	${CMAKE_CURRENT_SOURCE_DIR}/Hardware/bsp_motor_safe.c
 	${CMAKE_CURRENT_SOURCE_DIR}/Hardware/bsp_mecanum.c
 	${CMAKE_CURRENT_SOURCE_DIR}/Hardware/app_ladrc.c
+	${CMAKE_CURRENT_SOURCE_DIR}/Hardware/app_line_follow_control.c
+	${CMAKE_CURRENT_SOURCE_DIR}/Hardware/app_line_observer.c
+	${CMAKE_CURRENT_SOURCE_DIR}/Hardware/speed_ladrc.c
+	${CMAKE_CURRENT_SOURCE_DIR}/Hardware/app_line_follow_mission.c
 	${CMAKE_CURRENT_SOURCE_DIR}/Hardware/app_servo_test.c
 	${CMAKE_CURRENT_SOURCE_DIR}/Hardware/app_bluetooth_motor_test.c
 	${CMAKE_CURRENT_SOURCE_DIR}/Hardware/app_nano_uart_test.c
@@ -163,8 +184,11 @@ target_compile_definitions(${CMAKE_PROJECT_NAME} PRIVATE
 	${symbols_SYMB}
 	BLUETOOTH_MOTOR_OUTPUT_ENABLE=${BLUETOOTH_MOTOR_OUTPUT_ENABLE_VALUE}
 	BLUETOOTH_BAUDRATE=${BLUETOOTH_BAUDRATE_VALUE}
+	RADAR_POSE_UART_BAUDRATE=${RADAR_POSE_UART_BAUDRATE_VALUE}
 	GYRO_BAUDRATE=${GYRO_BAUDRATE_VALUE}
 	LORA_UART_BAUDRATE=${LORA_UART_BAUDRATE_VALUE}
+	LINE_REQUIRE_GYRO_FOR_START=${LINE_REQUIRE_GYRO_FOR_START_VALUE}
+	LINE_BASE_SPEED_MM_S=${LINE_BASE_SPEED_MM_S_VALUE}
     $<$<COMPILE_LANGUAGE:C>: ${symbols_c_SYMB}>
     $<$<COMPILE_LANGUAGE:CXX>: ${symbols_cxx_SYMB}>
     $<$<COMPILE_LANGUAGE:ASM>: ${symbols_asm_SYMB}>
