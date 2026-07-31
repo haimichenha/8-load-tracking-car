@@ -10,6 +10,24 @@ description: Bench-to-field validation workflow for the STM32F103ZET6 D-task gra
 Write `BENCH_FOUR_WHEEL` or `COMPETITION_LINE_FOLLOW` in the test record. Do
 not flash a bench image onto a vehicle expected to use the gray array.
 
+## Flash The Current Competition Image
+
+Use the verified SWD path from the `lidar_car` project root after removing
+payload risk or lifting the wheels:
+
+```bat
+powershell -NoProfile -ExecutionPolicy Bypass -File "scripts\jlink_flash.ps1" -Configuration LineFollowMissionDebug -SwdSpeedKhz 50
+```
+
+This command configures, builds, downloads, compares every programmed section,
+then resets and starts `LineFollowMissionDebug`. Accept the flash only when the
+command exits `0` and every `compare-sections` range reports `matched`.
+
+Use `scripts\flash_line_follow_uart.cmd COMx` only as a ROM-bootloader fallback;
+it requires `BOOT0=1`, reset during connection, then `BOOT0=0` before running
+the application. A missing Windows diagnostic COM port never invalidates an
+otherwise successful SWD section comparison.
+
 ## 2. Bench Four-Wheel Qualification
 
 1. Lift all wheels. Verify motor supply, 3.3 V logic, common ground, and both

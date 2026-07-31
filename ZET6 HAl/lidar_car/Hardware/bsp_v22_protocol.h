@@ -17,11 +17,14 @@
 #define V22_ADDR_CAR_MCU       0x32U
 #define V22_ADDR_GROUND        0x40U
 
+#define V22_TYPE_FLIGHT_TELEMETRY 0x02U
 #define V22_TYPE_HEARTBEAT       0x03U
 #define V22_TYPE_ACK             0x11U
 #define V22_TYPE_CAR_POSE        0x80U
 #define V22_TYPE_TASK_REQUEST    0x81U
+#define V22_TYPE_MISSION_STATUS  0x82U
 #define V22_TYPE_CALIBRATION_SET 0x83U
+#define V22_TYPE_MISSION_ABORT   0x84U
 #define V22_TYPE_MAINTENANCE_RESET 0x85U
 
 #define V22_FRAME_FLAG_ACK_REQUIRED   0x01U
@@ -32,6 +35,24 @@
 #define V22_ACK_RESULT_DUPLICATE      0x01U
 
 #define V22_MAINT_RESET_FLAG_CLEAR_CALIBRATION 0x01U
+
+/* MISSION_STATUS.Stage and FLIGHT_TELEMETRY.ModeCode share this mission
+ * stage vocabulary.  The vehicle only uses these values for its bounded
+ * speed profile; the aircraft remains the authority for flight actions. */
+#define V22_MISSION_STAGE_IDLE             0U
+#define V22_MISSION_STAGE_PRECHECK         1U
+#define V22_MISSION_STAGE_TAKEOFF          2U
+#define V22_MISSION_STAGE_INTERCEPT        3U
+#define V22_MISSION_STAGE_FOLLOW           4U
+#define V22_MISSION_STAGE_DROP_ALIGN       5U
+#define V22_MISSION_STAGE_DROP_ACTION      6U
+#define V22_MISSION_STAGE_LAND_ALIGN       7U
+#define V22_MISSION_STAGE_DESCEND          8U
+#define V22_MISSION_STAGE_ON_PLATFORM_5S   9U
+#define V22_MISSION_STAGE_PLATFORM_TAKEOFF 10U
+#define V22_MISSION_STAGE_RETURN_HOME      11U
+#define V22_MISSION_STAGE_HOME_LAND        12U
+#define V22_MISSION_STAGE_ABORT            13U
 
 #define V22_COORDINATE_FIELD_GLOBAL 0x01U
 

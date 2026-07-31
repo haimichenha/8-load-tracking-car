@@ -1,15 +1,16 @@
 /**
  ******************************************************************************
  * @file    app_line_follow_mission.c
- * @brief   Field-ready line-following run: PG10 gate, gray/direct-JY901 observer,
- *          front-wheel LADRC plus four-wheel physical-forward actuation.
+ * @brief   Field-ready line-following run: task keys, radar pose gate,
+ *          gray/direct-JY901 observer, and four-wheel actuation.
  *
  * Front encoders close the speed loop. The rear TB6612 receives the matching
  * signed raw command only; it is a four-wheel open-loop follower until its
  * TIM4/TIM8 encoder feedback is calibrated. The directly wired JY901 yaw is
  * the bounded yaw/rate feedback source; gray remains the primary path-error
- * source. UART4 radar pose parsing is retained as a separate future back-up
- * path and is intentionally not mixed into this field controller.
+ * source and encoder path distance supplies the primary progress distance.
+ * UART4 radar pose is an auxiliary coordinate/coordination signal only: it
+ * never supplies steering and never stops the vehicle by itself.
  ******************************************************************************
  */
 
@@ -40,6 +41,16 @@
 #define LINE_RADIO_HEARTBEAT_PERIOD_MS      500U
 #define LINE_RADIO_POSE_PERIOD_MS            100U
 #define LINE_RADIO_POSE_FRESH_MS             250U
+#define LINE_RADIO_CAR_SLOT_MS                100U
+#define LINE_RADIO_CAR_SLOT_WINDOW_MS          25U
+#define LINE_RADIO_RX_POLL_LIMIT              128U
+#define LINE_TASK_REQUEST_RETRY_COUNT           3U
+#define LINE_TASK_ACK_WINDOW_MS               350U
+#define LINE_MISSION_ABORT_RETRY_COUNT          3U
+#define LINE_ABORT_ACK_WINDOW_MS              350U
+#define LINE_TASK_REQUEST_FLAGS              0x01U
+#define LINE_FLIGHT_TELEMETRY_PAYLOAD_LENGTH   24U
+#define LINE_MISSION_STATUS_PAYLOAD_LENGTH     12U
 #define LINE_MAINTENANCE_HOLD_MS            2000U
 #define LINE_MAINTENANCE_STATIONARY_MS     12000U
 #define LINE_MAINTENANCE_BROADCAST_COUNT       3U
@@ -48,29 +59,38 @@
 #define LINE_ENCODER_LIVE_AFTER_MS         1000U
 #define LINE_ENCODER_LIVE_CMD_PERCENT        35
 #define LINE_ENCODER_LIVE_MIN_CPS            200
+#define LINE_RADAR_B_PATH_DISTANCE_CM        150L
+#define LINE_RADAR_B_REACH_DISTANCE_CM       \
+    (LINE_RADAR_B_PATH_DISTANCE_CM - 20L)
+#define LINE_RADAR_A_PREPARE_RADIUS_CM        45L
+#define LINE_RADAR_A_STOP_RADIUS_CM           20L
+#define LINE_RADAR_MAX_STEP_CM                 40L
+#define LINE_RADAR_B_CONFIRM_SAMPLES            2U
+#define LINE_FLIGHT_STATE_STALE_MS           1500U
+#define LINE_B_ODOMETRY_DISTANCE_MM          1200L
+#define LINE_A_RETURN_MIN_DISTANCE_MM        4000L
 
 #ifndef LINE_BASE_SPEED_MM_S
-#define LINE_BASE_SPEED_MM_S                 600L
+#define LINE_BASE_SPEED_MM_S                 120L
 #endif
 #ifndef LINE_REQUIRE_GYRO_FOR_START
 #define LINE_REQUIRE_GYRO_FOR_START              1
 #endif
 
-#if (LINE_REQUIRE_GYRO_FOR_START == 0)
-#define LINE_LEAVE_A_SPEED_MM_S              300L
-#define LINE_CURVE_SPEED_MM_S                300L
-#define LINE_HARD_CURVE_SPEED_MM_S           220L
-#define LINE_TIGHT_CURVE_SPEED_MM_S          180L
-#define LINE_LOST_HOLD_SPEED_MM_S            180L
-#define LINE_WIDE_SPEED_MM_S                 LINE_BASE_SPEED_MM_S
-#else
-#define LINE_LEAVE_A_SPEED_MM_S              400L
-#define LINE_CURVE_SPEED_MM_S                500L
-#define LINE_HARD_CURVE_SPEED_MM_S           420L
-#define LINE_TIGHT_CURVE_SPEED_MM_S          280L
-#define LINE_LOST_HOLD_SPEED_MM_S            180L
-#define LINE_WIDE_SPEED_MM_S                 LINE_BASE_SPEED_MM_S
-#endif
+/* Both tasks leave A at the cooperative speed.  The fast envelope is only
+ * unlocked by the appropriate verified aircraft stage, never by an ACK. */
+#define LINE_LEAVE_A_SPEED_MM_S              120L
+#define LINE_COOP_CURVE_SPEED_MM_S           115L
+#define LINE_COOP_HARD_CURVE_SPEED_MM_S      110L
+#define LINE_COOP_TIGHT_CURVE_SPEED_MM_S     100L
+#define LINE_COOP_LOST_HOLD_SPEED_MM_S        90L
+#define LINE_COOP_WIDE_SPEED_MM_S            110L
+#define LINE_POST_COORD_BASE_SPEED_MM_S      180L
+#define LINE_POST_COORD_CURVE_SPEED_MM_S     165L
+#define LINE_POST_COORD_HARD_CURVE_SPEED_MM_S 150L
+#define LINE_POST_COORD_TIGHT_CURVE_SPEED_MM_S 135L
+#define LINE_POST_COORD_LOST_HOLD_SPEED_MM_S 105L
+#define LINE_POST_COORD_WIDE_SPEED_MM_S      155L
 
 #define LINE_SPEED_B0                       800.0f
 #define LINE_SPEED_WC                         8.0f
@@ -79,13 +99,13 @@
 #define LINE_SPEED_OUT_MAX                   45.0f
 #define LINE_SPEED_OUT_STEP                   6.0f
 #define LINE_TARGET_REVERSE_MIN_CPS         -800
-#define LINE_TARGET_MAX_CPS                 4200
-#define LINE_TARGET_BASE_SLEW_CPS_PER_SAMPLE 300
-#define LINE_TARGET_DIFFERENTIAL_SLEW_CPS_PER_SAMPLE 600
+#define LINE_TARGET_MAX_CPS                 1600
+#define LINE_TARGET_BASE_SLEW_CPS_PER_SAMPLE 160
+#define LINE_TARGET_DIFFERENTIAL_SLEW_CPS_PER_SAMPLE 300
 #define LINE_LOST_DIRECTION_HISTORY_COUNT      4U
 #define LINE_LOST_DIRECTION_ERROR_X100        200
 #define LINE_LOST_DIRECTION_MIN_CPS           500
-#define LINE_LOST_SEARCH_DIFFERENTIAL_CPS    3600
+#define LINE_LOST_SEARCH_DIFFERENTIAL_CPS    2400
 #define LINE_LOST_REACQUIRE_SAMPLES             3U
 #define LINE_LOST_REACQUIRE_ERROR_X100        300
 #define LINE_A_RAW_FULL_MASK                  0xFFU
@@ -112,6 +132,72 @@ typedef enum
     LINE_MISSION_SAFE_STOP,
     LINE_MISSION_FAULT
 } LineMissionState_t;
+
+typedef enum
+{
+    LINE_TASK_NONE = 0,
+    LINE_TASK_DROP = 1,
+    LINE_TASK_DYNAMIC_LANDING = 2
+} LineMissionTaskType_t;
+
+typedef enum
+{
+    LINE_TASK_STATE_IDLE = 0,
+    LINE_TASK_STATE_PENDING,
+    LINE_TASK_STATE_WAIT_ACK,
+    LINE_TASK_STATE_ACCEPTED,
+    LINE_TASK_STATE_REJECTED,
+    LINE_TASK_STATE_TIMEOUT,
+    LINE_TASK_STATE_CANCELLED
+} LineMissionTaskState_t;
+
+typedef struct
+{
+    uint8_t stablePressed;
+    uint8_t candidatePressed;
+    uint32_t candidateSinceMs;
+} LineMissionButton_t;
+
+typedef struct
+{
+    uint8_t valid;
+    uint8_t stage;
+    uint8_t telemetryModeCode;
+    uint8_t missionStatusSeen;
+    uint8_t dropActionSeen;
+    uint8_t abortSeen;
+    uint16_t statusFlags;
+    uint16_t missionId;
+    uint8_t errorCode;
+    uint32_t sourceTimeMs;
+    uint32_t lastUpdateMs;
+    uint8_t staleReported;
+    uint32_t lastMissionStatusMs;
+    uint32_t lastTelemetryMs;
+    uint32_t missionStatusCount;
+    uint32_t telemetryCount;
+    uint32_t invalidFrameCount;
+} LineMissionFlightState_t;
+
+typedef struct
+{
+    uint8_t armed;
+    uint8_t bReached;
+    uint8_t aReturnPrepared;
+    uint8_t aStopPrepared;
+    uint8_t invalidReported;
+    uint8_t bReachCandidateCount;
+    uint8_t lastPoseValid;
+    uint16_t calibrationId;
+    int32_t aXCm;
+    int32_t aYCm;
+    int32_t lastPoseXCm;
+    int32_t lastPoseYCm;
+    uint32_t aDistanceSquaredCm;
+    uint32_t lastPoseFrameMs;
+    uint32_t bReachedMs;
+    uint32_t aPreparedMs;
+} LineMissionRadarAssist_t;
 
 typedef struct
 {
@@ -151,6 +237,7 @@ typedef struct
     uint8_t gyroFresh;
     uint8_t lostReacquireCount;
     uint8_t completeMarkCount;
+    uint32_t runDistanceMm;
 } LineFrozenRecord_t;
 
 static LineObserver_t s_observer;
@@ -168,9 +255,9 @@ static uint32_t s_runStartMs;
 static uint32_t s_lostStartMs;
 static uint32_t s_maintenanceStationarySinceMs;
 static uint32_t s_maintenanceButtonSinceMs;
-static uint32_t s_buttonCandidateSinceMs;
-static uint8_t s_buttonStablePressed;
-static uint8_t s_buttonCandidatePressed;
+static LineMissionButton_t s_taskOneButton;
+static LineMissionButton_t s_taskTwoButton;
+static LineMissionButton_t s_calibrationButton;
 static uint8_t s_maintenanceButtonPressed;
 static uint8_t s_maintenanceButtonHandled;
 static uint8_t s_normalLineCount;
@@ -180,14 +267,40 @@ static uint8_t s_encoderNotLiveReported;
 static uint8_t s_lapYawTravelValid;
 static int16_t s_lastLapYawTenths;
 static int32_t s_lapYawTravelTenths;
+static uint32_t s_runDistanceMm;
 static uint8_t s_radioSequence;
 static uint8_t s_radioHeartbeatStarted;
 static uint32_t s_lastRadioHeartbeatMs;
 static uint32_t s_radioHeartbeatTxCount;
-static uint8_t s_radioPoseStarted;
-static uint32_t s_lastRadioPoseTxMs;
+static uint32_t s_lastRadioSlot;
 static uint32_t s_radioPoseTxCount;
 static uint32_t s_radioPoseDropCount;
+static V22StreamParser_t s_radioRxParser;
+static uint32_t s_radioAckFrameCount;
+static uint32_t s_radioAckDropCount;
+static uint16_t s_radioUartErrorFlags;
+static LineMissionTaskType_t s_startTaskType;
+static LineMissionTaskType_t s_taskType;
+static LineMissionTaskState_t s_taskState;
+static uint16_t s_nextMissionId;
+static uint16_t s_taskMissionId;
+static uint16_t s_taskCalibrationId;
+static uint8_t s_taskSequence;
+static uint8_t s_taskTxRemaining;
+static uint8_t s_taskAckResult;
+static uint8_t s_taskAckDetail;
+static uint32_t s_taskSourceTimeMs;
+static uint32_t s_taskAckDeadlineMs;
+static uint8_t s_abortSequence;
+static uint8_t s_abortTxRemaining;
+static uint8_t s_abortAckResult;
+static uint8_t s_abortAckDetail;
+static uint32_t s_abortAckDeadlineMs;
+static uint32_t s_abortAckFrameCount;
+static uint32_t s_abortAckDropCount;
+static LineMissionFlightState_t s_flight;
+static LineMissionRadarAssist_t s_radarAssist;
+static uint8_t s_coordinationSpeedUnlocked;
 static uint16_t s_maintenanceResetId;
 static uint16_t s_maintenanceNextResetId;
 static uint8_t s_maintenanceBroadcastRemaining;
@@ -214,6 +327,9 @@ static int16_t s_commandLeftPercent;
 static int16_t s_commandRightPercent;
 static int16_t s_rearLeftRawPercent;
 static int16_t s_rearRightRawPercent;
+
+static void LineMission_CancelPendingTask(const char *reason, uint32_t nowMs);
+static void LineMission_QueueMissionAbort(const char *reason, uint32_t nowMs);
 
 static int16_t LineMission_Clamp(int32_t value, int16_t lower, int16_t upper)
 {
@@ -250,6 +366,26 @@ static int32_t LineMission_Abs(int32_t value)
     return (value < 0) ? -value : value;
 }
 
+static void LineMission_AccumulateRunDistance(void)
+{
+    uint32_t leftCount = (uint32_t)LineMission_Abs(g_encoderL.count);
+    uint32_t rightCount = (uint32_t)LineMission_Abs(g_encoderR.count);
+    uint32_t meanCount = (leftCount + rightCount) / 2U;
+    uint32_t deltaMm = (meanCount * WHEEL_CIRCUMFERENCE_MM) /
+                       ENCODER_4X_PPR;
+
+    /* Use absolute wheel increments so an inside wheel reversing in a tight
+     * turn does not erase the travelled-distance gate. */
+    if (UINT32_MAX - s_runDistanceMm < deltaMm)
+    {
+        s_runDistanceMm = UINT32_MAX;
+    }
+    else
+    {
+        s_runDistanceMm += deltaMm;
+    }
+}
+
 static uint8_t LineMission_CountBits(uint8_t mask)
 {
     uint8_t count = 0U;
@@ -264,10 +400,23 @@ static uint8_t LineMission_CountBits(uint8_t mask)
 
 static uint8_t LineMission_IsReturnAMarker(void)
 {
+    /* JY901 cumulative yaw is checked by the caller; encoder path distance
+     * supplies the second independent gate so the starting A marker cannot
+     * stop the vehicle during the first few metres. */
+    if (s_runDistanceMm < LINE_A_RETURN_MIN_DISTANCE_MM)
+    {
+        return 0U;
+    }
     return ((s_observer.lineClass == LINE_OBSERVER_A_MARK) ||
             ((s_observer.rawMask == LINE_A_RAW_FULL_MASK) &&
              (LineMission_CountBits(s_observer.stableMask) >=
-              LINE_A_RETURN_MIN_STABLE_BITS))) ? 1U : 0U;
+              LINE_A_RETURN_MIN_STABLE_BITS)) ||
+             /* Radar cannot terminate the run by itself.  Once the return-A
+              * window is armed, it merely permits the short raw all-black
+              * sample which the observer may otherwise miss while updating
+              * its stable mask. */
+             ((s_radarAssist.aStopPrepared != 0U) &&
+              (s_observer.rawMask == LINE_A_RAW_FULL_MASK))) ? 1U : 0U;
 }
 
 static int16_t LineMission_WrapTenthsDeg(int32_t value)
@@ -326,6 +475,17 @@ static uint8_t LineMission_IsActive(void)
             (s_state == LINE_MISSION_LOST_HOLD)) ? 1U : 0U;
 }
 
+static uint8_t LineMission_IsMissionBusy(void)
+{
+    return ((s_state == LINE_MISSION_START_GATE) ||
+            (LineMission_IsActive() != 0U)) ? 1U : 0U;
+}
+
+static uint8_t LineMission_IsFlightStageValid(uint8_t stage)
+{
+    return (stage <= V22_MISSION_STAGE_ABORT) ? 1U : 0U;
+}
+
 static const char *LineMission_StateName(void)
 {
     switch (s_state)
@@ -339,6 +499,54 @@ static const char *LineMission_StateName(void)
         case LINE_MISSION_FAULT:      return "FAULT";
         case LINE_MISSION_IDLE:
         default:                      return "IDLE";
+    }
+}
+
+static const char *LineMission_TaskTypeName(LineMissionTaskType_t taskType)
+{
+    switch (taskType)
+    {
+        case LINE_TASK_DROP:            return "DROP";
+        case LINE_TASK_DYNAMIC_LANDING: return "DYNAMIC_LANDING";
+        case LINE_TASK_NONE:
+        default:                        return "NONE";
+    }
+}
+
+static const char *LineMission_TaskStateName(LineMissionTaskState_t taskState)
+{
+    switch (taskState)
+    {
+        case LINE_TASK_STATE_PENDING:  return "PENDING";
+        case LINE_TASK_STATE_WAIT_ACK: return "WAIT_ACK";
+        case LINE_TASK_STATE_ACCEPTED: return "ACCEPTED";
+        case LINE_TASK_STATE_REJECTED: return "REJECTED";
+        case LINE_TASK_STATE_TIMEOUT:  return "TIMEOUT";
+        case LINE_TASK_STATE_CANCELLED:return "CANCELLED";
+        case LINE_TASK_STATE_IDLE:
+        default:                       return "IDLE";
+    }
+}
+
+static const char *LineMission_FlightStageName(uint8_t stage)
+{
+    switch (stage)
+    {
+        case V22_MISSION_STAGE_PRECHECK:         return "PRECHECK";
+        case V22_MISSION_STAGE_TAKEOFF:          return "TAKEOFF";
+        case V22_MISSION_STAGE_INTERCEPT:        return "INTERCEPT";
+        case V22_MISSION_STAGE_FOLLOW:           return "FOLLOW";
+        case V22_MISSION_STAGE_DROP_ALIGN:       return "DROP_ALIGN";
+        case V22_MISSION_STAGE_DROP_ACTION:      return "DROP_ACTION";
+        case V22_MISSION_STAGE_LAND_ALIGN:       return "LAND_ALIGN";
+        case V22_MISSION_STAGE_DESCEND:          return "DESCEND";
+        case V22_MISSION_STAGE_ON_PLATFORM_5S:   return "ON_PLATFORM_5S";
+        case V22_MISSION_STAGE_PLATFORM_TAKEOFF: return "PLATFORM_TAKEOFF";
+        case V22_MISSION_STAGE_RETURN_HOME:      return "RETURN_HOME";
+        case V22_MISSION_STAGE_HOME_LAND:        return "HOME_LAND";
+        case V22_MISSION_STAGE_ABORT:            return "ABORT";
+        case V22_MISSION_STAGE_IDLE:
+        default:                                  return "IDLE";
     }
 }
 
@@ -528,6 +736,8 @@ static void LineMission_WriteEvent(const char *event,
     DiagUart_WriteInt32(s_observer.yawTenthsDeg);
     DiagUart_WriteString(",lap_yaw_travel_tenths=");
     DiagUart_WriteInt32(s_lapYawTravelTenths);
+    DiagUart_WriteString(",run_distance_mm=");
+    DiagUart_WriteUInt32(s_runDistanceMm);
     DiagUart_WriteString(",radio_hb_tx_count=");
     DiagUart_WriteUInt32(s_radioHeartbeatTxCount);
     DiagUart_WriteString(",radio_hb_last_ms=");
@@ -554,10 +764,12 @@ static void LineMission_WriteStatus(uint32_t nowMs)
     const volatile GyroWitState_t *gyro = GyroWit_GetState();
     const CarPoseLinkState_t *pose = CarPoseLink_GetState();
     uint8_t index;
-    uint8_t rawPressed = (GPIO_ReadInputDataBit(GPIOG, GPIO_Pin_10) == Bit_RESET) ?
-                         1U : 0U;
-    uint8_t rawMaintenancePressed =
+    uint8_t rawTaskTwoPressed =
         (GPIO_ReadInputDataBit(GPIOG, GPIO_Pin_9) == Bit_RESET) ? 1U : 0U;
+    uint8_t rawCalibrationPressed =
+        (GPIO_ReadInputDataBit(GPIOG, GPIO_Pin_12) == Bit_RESET) ? 1U : 0U;
+    uint8_t rawTaskOnePressed =
+        (GPIO_ReadInputDataBit(GPIOG, GPIO_Pin_13) == Bit_RESET) ? 1U : 0U;
 
     DiagUart_WriteString("LF,event=status,t_ms=");
     DiagUart_WriteUInt32(nowMs);
@@ -571,13 +783,19 @@ static void LineMission_WriteStatus(uint32_t nowMs)
     DiagUart_WriteUInt32(LINE_LOST_TIMEOUT_MS);
     DiagUart_WriteString(",live_record_log=");
     DiagUart_WriteUInt32(LINE_LIVE_RECORD_LOG_ENABLE);
-    DiagUart_WriteString(",pg10_raw_pressed=");
-    DiagUart_WriteUInt32(rawPressed);
-    DiagUart_WriteString(",pg10_stable_pressed=");
-    DiagUart_WriteUInt32(s_buttonStablePressed);
-    DiagUart_WriteString(",pg9_raw_pressed=");
-    DiagUart_WriteUInt32(rawMaintenancePressed);
-    DiagUart_WriteString(",pg9_hold_ms=");
+    DiagUart_WriteString(",pg13_task1_raw_pressed=");
+    DiagUart_WriteUInt32(rawTaskOnePressed);
+    DiagUart_WriteString(",pg13_task1_stable_pressed=");
+    DiagUart_WriteUInt32(s_taskOneButton.stablePressed);
+    DiagUart_WriteString(",pg9_task2_raw_pressed=");
+    DiagUart_WriteUInt32(rawTaskTwoPressed);
+    DiagUart_WriteString(",pg9_task2_stable_pressed=");
+    DiagUart_WriteUInt32(s_taskTwoButton.stablePressed);
+    DiagUart_WriteString(",pg12_cal_raw_pressed=");
+    DiagUart_WriteUInt32(rawCalibrationPressed);
+    DiagUart_WriteString(",pg12_cal_stable_pressed=");
+    DiagUart_WriteUInt32(s_calibrationButton.stablePressed);
+    DiagUart_WriteString(",pg12_cal_hold_ms=");
     DiagUart_WriteUInt32((s_maintenanceButtonPressed != 0U) ?
                           (nowMs - s_maintenanceButtonSinceMs) : 0U);
     DiagUart_WriteString(",maint_stationary_ms=");
@@ -612,6 +830,8 @@ static void LineMission_WriteStatus(uint32_t nowMs)
     DiagUart_WriteUInt32(s_encoderNotLiveReported);
     DiagUart_WriteString(",lap_yaw_travel_tenths=");
     DiagUart_WriteInt32(s_lapYawTravelTenths);
+    DiagUart_WriteString(",run_distance_mm=");
+    DiagUart_WriteUInt32(s_runDistanceMm);
     DiagUart_WriteString(",radio_hb_tx_count=");
     DiagUart_WriteUInt32(s_radioHeartbeatTxCount);
     DiagUart_WriteString(",radio_hb_last_ms=");
@@ -620,8 +840,16 @@ static void LineMission_WriteStatus(uint32_t nowMs)
     DiagUart_WriteUInt32(s_radioPoseTxCount);
     DiagUart_WriteString(",radio_pose_drop_count=");
     DiagUart_WriteUInt32(s_radioPoseDropCount);
+    DiagUart_WriteString(",radio_ack_count=");
+    DiagUart_WriteUInt32(s_radioAckFrameCount);
+    DiagUart_WriteString(",radio_ack_drop_count=");
+    DiagUart_WriteUInt32(s_radioAckDropCount);
+    DiagUart_WriteString(",radio_uart_err=");
+    DiagUart_WriteUInt32(s_radioUartErrorFlags);
     DiagUart_WriteString(",pi_pose_fresh=");
     DiagUart_WriteUInt32(CarPoseLink_IsFresh(nowMs, LINE_RADIO_POSE_FRESH_MS));
+    DiagUart_WriteString(",pi_task_ready=");
+    DiagUart_WriteUInt32(CarPoseLink_IsTaskReady(nowMs, LINE_RADIO_POSE_FRESH_MS));
     DiagUart_WriteString(",pi_pose_rx_ok=");
     DiagUart_WriteUInt32(pose->validFrameCount);
     DiagUart_WriteString(",pi_pose_v22_ok=");
@@ -685,6 +913,70 @@ static void LineMission_WriteStatus(uint32_t nowMs)
     DiagUart_WriteUInt32(gyro->frameHeadCount);
     DiagUart_WriteString(",gyro_checksum_errors=");
     DiagUart_WriteUInt32(gyro->checksumErrorCount);
+    DiagUart_WriteString(",task_type=");
+    DiagUart_WriteString(LineMission_TaskTypeName(s_taskType));
+    DiagUart_WriteString(",task_state=");
+    DiagUart_WriteString(LineMission_TaskStateName(s_taskState));
+    DiagUart_WriteString(",task_mission_id=");
+    DiagUart_WriteUInt32(s_taskMissionId);
+    DiagUart_WriteString(",task_cal_id=");
+    DiagUart_WriteUInt32(s_taskCalibrationId);
+    DiagUart_WriteString(",task_seq=");
+    DiagUart_WriteUInt32(s_taskSequence);
+    DiagUart_WriteString(",task_tx_left=");
+    DiagUart_WriteUInt32(s_taskTxRemaining);
+    DiagUart_WriteString(",task_ack_result=");
+    DiagUart_WriteUInt32(s_taskAckResult);
+    DiagUart_WriteString(",task_ack_detail=");
+    DiagUart_WriteUInt32(s_taskAckDetail);
+    DiagUart_WriteString(",abort_seq=");
+    DiagUart_WriteUInt32(s_abortSequence);
+    DiagUart_WriteString(",abort_tx_left=");
+    DiagUart_WriteUInt32(s_abortTxRemaining);
+    DiagUart_WriteString(",abort_ack_result=");
+    DiagUart_WriteUInt32(s_abortAckResult);
+    DiagUart_WriteString(",abort_ack_detail=");
+    DiagUart_WriteUInt32(s_abortAckDetail);
+    DiagUart_WriteString(",abort_ack_deadline_ms=");
+    DiagUart_WriteUInt32(s_abortAckDeadlineMs);
+    DiagUart_WriteString(",abort_ack_count=");
+    DiagUart_WriteUInt32(s_abortAckFrameCount);
+    DiagUart_WriteString(",abort_ack_drop_count=");
+    DiagUart_WriteUInt32(s_abortAckDropCount);
+    DiagUart_WriteString(",flight_stage=");
+    DiagUart_WriteString(LineMission_FlightStageName(s_flight.stage));
+    DiagUart_WriteString(",flight_stage_code=");
+    DiagUart_WriteUInt32(s_flight.stage);
+    DiagUart_WriteString(",flight_stage_valid=");
+    DiagUart_WriteUInt32(s_flight.valid);
+    DiagUart_WriteString(",flight_status_seen=");
+    DiagUart_WriteUInt32(s_flight.missionStatusSeen);
+    DiagUart_WriteString(",flight_status_count=");
+    DiagUart_WriteUInt32(s_flight.missionStatusCount);
+    DiagUart_WriteString(",flight_telem_mode=");
+    DiagUart_WriteUInt32(s_flight.telemetryModeCode);
+    DiagUart_WriteString(",flight_telem_count=");
+    DiagUart_WriteUInt32(s_flight.telemetryCount);
+    DiagUart_WriteString(",flight_drop_action_seen=");
+    DiagUart_WriteUInt32(s_flight.dropActionSeen);
+    DiagUart_WriteString(",flight_abort_seen=");
+    DiagUart_WriteUInt32(s_flight.abortSeen);
+    DiagUart_WriteString(",flight_last_update_ms=");
+    DiagUart_WriteUInt32(s_flight.lastUpdateMs);
+    DiagUart_WriteString(",flight_rx_invalid=");
+    DiagUart_WriteUInt32(s_flight.invalidFrameCount);
+    DiagUart_WriteString(",coord_speed_unlocked=");
+    DiagUart_WriteUInt32(s_coordinationSpeedUnlocked);
+    DiagUart_WriteString(",radar_assist_armed=");
+    DiagUart_WriteUInt32(s_radarAssist.armed);
+    DiagUart_WriteString(",radar_b_reached=");
+    DiagUart_WriteUInt32(s_radarAssist.bReached);
+    DiagUart_WriteString(",radar_a_prepared=");
+    DiagUart_WriteUInt32(s_radarAssist.aReturnPrepared);
+    DiagUart_WriteString(",radar_a_stop_prepared=");
+    DiagUart_WriteUInt32(s_radarAssist.aStopPrepared);
+    DiagUart_WriteString(",radar_a_dist_sq_cm=");
+    DiagUart_WriteUInt32(s_radarAssist.aDistanceSquaredCm);
     DiagUart_WriteString(",motors_enabled=");
     DiagUart_WriteUInt32(Motor_IsEnabled());
     DiagUart_WriteString(",rear_enabled=");
@@ -722,6 +1014,15 @@ static void LineMission_Stop(LineMissionState_t state,
                              uint32_t nowMs,
                              const char *reason)
 {
+    if (((state == LINE_MISSION_SAFE_STOP) || (state == LINE_MISSION_FAULT)) &&
+        ((LineMission_IsActive() != 0U) ||
+         ((s_state == LINE_MISSION_START_GATE) &&
+          ((s_taskState == LINE_TASK_STATE_PENDING) ||
+           (s_taskState == LINE_TASK_STATE_WAIT_ACK)))))
+    {
+        LineMission_QueueMissionAbort(reason, nowMs);
+    }
+    LineMission_CancelPendingTask(reason, nowMs);
     LineMission_MotorOff();
     LineMission_EnterState(state, nowMs, reason);
     LineMission_Freeze(nowMs, reason);
@@ -733,6 +1034,7 @@ static void LineMission_Record(uint32_t nowMs)
 
     record->timeMs = nowMs;
     record->lapYawTravelTenths = s_lapYawTravelTenths;
+    record->runDistanceMm = s_runDistanceMm;
     record->errorX100 = s_observer.grayErrorX100;
     record->grayDiffCps = s_observer.grayDifferentialCps;
     record->yawRefTenthsPerSec = s_observer.yawRateReferenceTenthsPerSec;
@@ -862,6 +1164,8 @@ static void LineMission_DumpFrozenLog(void)
         DiagUart_WriteUInt32(record->timeMs);
         DiagUart_WriteString(",lap_yaw_travel,");
         DiagUart_WriteInt32(record->lapYawTravelTenths);
+        DiagUart_WriteString(",run_distance_mm,");
+        DiagUart_WriteUInt32(record->runDistanceMm);
         DiagUart_WriteString(",state,");
         DiagUart_WriteUInt32(record->missionState);
         DiagUart_WriteString(",class,");
@@ -957,10 +1261,9 @@ static uint8_t LineMission_SendRadioHeartbeat(uint32_t nowMs)
 
 static void LineMission_UpdateRadioHeartbeat(uint32_t nowMs)
 {
-    /* Maintenance/test image: continuously expose a 2 Hz link heartbeat,
-     * independent of the PG10 mission state. It is never CAR_POSE or a task
-     * request; replace it with the formal 10 Hz slot scheduler before a
-     * flight-coordinated task. */
+    /* No-pose maintenance fallback while stopped.  It is never CAR_POSE,
+     * MISSION_STATUS, or a task request; active tasks use the formal slot
+     * scheduler below. */
     if ((s_radioHeartbeatStarted == 0U) ||
         ((uint32_t)(nowMs - s_lastRadioHeartbeatMs) >=
          LINE_RADIO_HEARTBEAT_PERIOD_MS))
@@ -983,6 +1286,19 @@ static void LineMission_WriteU32Be(uint8_t *destination, uint32_t value)
     destination[1] = (uint8_t)(value >> 16);
     destination[2] = (uint8_t)(value >> 8);
     destination[3] = (uint8_t)value;
+}
+
+static uint16_t LineMission_ReadU16Be(const uint8_t *source)
+{
+    return (uint16_t)(((uint16_t)source[0] << 8) | source[1]);
+}
+
+static uint32_t LineMission_ReadU32Be(const uint8_t *source)
+{
+    return ((uint32_t)source[0] << 24) |
+           ((uint32_t)source[1] << 16) |
+           ((uint32_t)source[2] << 8) |
+           (uint32_t)source[3];
 }
 
 static uint8_t LineMission_SendCarPose(const CarPoseLinkState_t *pose)
@@ -1042,9 +1358,796 @@ static uint8_t LineMission_SendCarPose(const CarPoseLinkState_t *pose)
 
 static uint8_t LineMission_CarSlotDue(uint32_t nowMs)
 {
-    return ((s_radioPoseStarted == 0U) ||
-            ((uint32_t)(nowMs - s_lastRadioPoseTxMs) >=
-             LINE_RADIO_POSE_PERIOD_MS)) ? 1U : 0U;
+    uint32_t slot = nowMs / LINE_RADIO_CAR_SLOT_MS;
+
+    if ((nowMs % LINE_RADIO_CAR_SLOT_MS) >= LINE_RADIO_CAR_SLOT_WINDOW_MS)
+    {
+        return 0U;
+    }
+    return (s_lastRadioSlot != slot) ? 1U : 0U;
+}
+
+static void LineMission_MarkRadioSlot(uint32_t nowMs)
+{
+    s_lastRadioSlot = nowMs / LINE_RADIO_CAR_SLOT_MS;
+}
+
+static void LineMission_WriteTaskEvent(const char *event,
+                                       const char *reason,
+                                       uint32_t nowMs)
+{
+    DiagUart_WriteString("LF,event=");
+    DiagUart_WriteString(event);
+    DiagUart_WriteString(",reason=");
+    DiagUart_WriteString(reason);
+    DiagUart_WriteString(",t_ms=");
+    DiagUart_WriteUInt32(nowMs);
+    DiagUart_WriteString(",task_type=");
+    DiagUart_WriteString(LineMission_TaskTypeName(s_taskType));
+    DiagUart_WriteString(",task_state=");
+    DiagUart_WriteString(LineMission_TaskStateName(s_taskState));
+    DiagUart_WriteString(",mission_id=");
+    DiagUart_WriteUInt32(s_taskMissionId);
+    DiagUart_WriteString(",calibration_id=");
+    DiagUart_WriteUInt32(s_taskCalibrationId);
+    DiagUart_WriteString(",seq=");
+    DiagUart_WriteUInt32(s_taskSequence);
+    DiagUart_WriteString(",tx_left=");
+    DiagUart_WriteUInt32(s_taskTxRemaining);
+    DiagUart_WriteString(",ack_result=");
+    DiagUart_WriteUInt32(s_taskAckResult);
+    DiagUart_WriteString(",ack_detail=");
+    DiagUart_WriteUInt32(s_taskAckDetail);
+    DiagUart_WriteString(",abort_seq=");
+    DiagUart_WriteUInt32(s_abortSequence);
+    DiagUart_WriteString(",abort_tx_left=");
+    DiagUart_WriteUInt32(s_abortTxRemaining);
+    DiagUart_WriteString(",abort_ack_result=");
+    DiagUart_WriteUInt32(s_abortAckResult);
+    DiagUart_WriteString(",abort_ack_detail=");
+    DiagUart_WriteUInt32(s_abortAckDetail);
+    DiagUart_WriteString(",abort_ack_deadline_ms=");
+    DiagUart_WriteUInt32(s_abortAckDeadlineMs);
+    DiagUart_WriteString(",abort_ack_count=");
+    DiagUart_WriteUInt32(s_abortAckFrameCount);
+    DiagUart_WriteString(",abort_ack_drop_count=");
+    DiagUart_WriteUInt32(s_abortAckDropCount);
+    DiagUart_WriteString(",line_state=");
+    DiagUart_WriteString(LineMission_StateName());
+    DiagUart_WriteString("\r\n");
+}
+
+static void LineMission_CancelPendingTask(const char *reason, uint32_t nowMs)
+{
+    if ((s_taskState != LINE_TASK_STATE_PENDING) &&
+        (s_taskState != LINE_TASK_STATE_WAIT_ACK))
+    {
+        return;
+    }
+
+    s_taskTxRemaining = 0U;
+    s_taskAckDeadlineMs = 0U;
+    s_taskState = LINE_TASK_STATE_CANCELLED;
+    LineMission_WriteTaskEvent("task_request_cancelled", reason, nowMs);
+}
+
+static void LineMission_QueueMissionAbort(const char *reason, uint32_t nowMs)
+{
+    if ((s_taskType == LINE_TASK_NONE) || (s_taskMissionId == 0U) ||
+        (s_abortTxRemaining != 0U) ||
+        (s_taskState == LINE_TASK_STATE_IDLE) ||
+        (s_taskState == LINE_TASK_STATE_REJECTED) ||
+        (s_taskState == LINE_TASK_STATE_CANCELLED))
+    {
+        return;
+    }
+
+    s_abortSequence = s_radioSequence++;
+    s_abortTxRemaining = LINE_MISSION_ABORT_RETRY_COUNT;
+    s_abortAckResult = 0xFFU;
+    s_abortAckDetail = 0xFFU;
+    s_abortAckDeadlineMs = 0U;
+    LineMission_WriteTaskEvent("mission_abort_queued", reason, nowMs);
+}
+
+static void LineMission_WriteFlightEvent(const char *event,
+                                         const char *reason,
+                                         uint32_t nowMs)
+{
+    DiagUart_WriteString("LF,event=");
+    DiagUart_WriteString(event);
+    DiagUart_WriteString(",reason=");
+    DiagUart_WriteString(reason);
+    DiagUart_WriteString(",t_ms=");
+    DiagUart_WriteUInt32(nowMs);
+    DiagUart_WriteString(",task_type=");
+    DiagUart_WriteString(LineMission_TaskTypeName(s_taskType));
+    DiagUart_WriteString(",mission_id=");
+    DiagUart_WriteUInt32(s_taskMissionId);
+    DiagUart_WriteString(",flight_stage=");
+    DiagUart_WriteString(LineMission_FlightStageName(s_flight.stage));
+    DiagUart_WriteString(",flight_stage_code=");
+    DiagUart_WriteUInt32(s_flight.stage);
+    DiagUart_WriteString(",speed_unlocked=");
+    DiagUart_WriteUInt32(s_coordinationSpeedUnlocked);
+    DiagUart_WriteString("\r\n");
+}
+
+static void LineMission_WriteRadarEvent(const char *event,
+                                        const char *reason,
+                                        uint32_t nowMs)
+{
+    DiagUart_WriteString("LF,event=");
+    DiagUart_WriteString(event);
+    DiagUart_WriteString(",reason=");
+    DiagUart_WriteString(reason);
+    DiagUart_WriteString(",t_ms=");
+    DiagUart_WriteUInt32(nowMs);
+    DiagUart_WriteString(",radar_b_reached=");
+    DiagUart_WriteUInt32(s_radarAssist.bReached);
+    DiagUart_WriteString(",radar_a_prepared=");
+    DiagUart_WriteUInt32(s_radarAssist.aReturnPrepared);
+    DiagUart_WriteString(",radar_a_stop_prepared=");
+    DiagUart_WriteUInt32(s_radarAssist.aStopPrepared);
+    DiagUart_WriteString(",radar_a_dist_sq_cm=");
+    DiagUart_WriteUInt32(s_radarAssist.aDistanceSquaredCm);
+    DiagUart_WriteString(",run_distance_mm=");
+    DiagUart_WriteUInt32(s_runDistanceMm);
+    DiagUart_WriteString("\r\n");
+}
+
+static uint8_t LineMission_TaskSessionCanConsumeFlight(void)
+{
+    if ((s_taskType == LINE_TASK_NONE) || (s_taskMissionId == 0U))
+    {
+        return 0U;
+    }
+    return ((s_taskState != LINE_TASK_STATE_REJECTED) &&
+            (s_taskState != LINE_TASK_STATE_CANCELLED) &&
+            (s_taskState != LINE_TASK_STATE_IDLE)) ? 1U : 0U;
+}
+
+static void LineMission_TryUnlockCoordinationSpeed(uint32_t nowMs)
+{
+    uint8_t unlock = 0U;
+
+    if (s_flight.stage == V22_MISSION_STAGE_ABORT)
+    {
+        s_coordinationSpeedUnlocked = 0U;
+        return;
+    }
+    if ((s_coordinationSpeedUnlocked != 0U) || (s_flight.valid == 0U))
+    {
+        return;
+    }
+
+    if (s_taskType == LINE_TASK_DROP)
+    {
+        /* RETURN_HOME is entered only after the DROP_ACTION has completed.
+         * B must have been observed first so the car cannot accelerate while
+         * it is still in the A-B companion-flight section. */
+        if ((s_radarAssist.bReached != 0U) &&
+            (s_flight.dropActionSeen != 0U) &&
+            (s_flight.stage == V22_MISSION_STAGE_RETURN_HOME))
+        {
+            unlock = 1U;
+        }
+    }
+    else if (s_taskType == LINE_TASK_DYNAMIC_LANDING)
+    {
+        /* TAKEOFF means the aircraft is still climbing.  INTERCEPT and all
+         * later non-abort stages mean it has left the takeoff phase. */
+        if ((s_flight.stage >= V22_MISSION_STAGE_INTERCEPT) &&
+            (s_flight.stage < V22_MISSION_STAGE_ABORT))
+        {
+            unlock = 1U;
+        }
+    }
+
+    if (unlock != 0U)
+    {
+        s_coordinationSpeedUnlocked = 1U;
+        LineMission_WriteFlightEvent("coord_speed_unlocked",
+                                     "FLIGHT_STAGE_GATE", nowMs);
+    }
+}
+
+static void LineMission_UpdateFlightStage(uint8_t stage,
+                                           uint32_t sourceTimeMs,
+                                           const char *reason,
+                                           uint32_t nowMs)
+{
+    uint8_t changed = ((s_flight.valid == 0U) ||
+                       (s_flight.stage != stage)) ? 1U : 0U;
+
+    /* SourceTimeMs is the aircraft's monotonic authority.  A delayed radio
+     * frame must not move the vehicle back to an earlier stage or re-open an
+     * already completed speed gate. */
+    if ((s_flight.valid != 0U) &&
+        ((int32_t)(sourceTimeMs - s_flight.sourceTimeMs) < 0))
+    {
+        ++s_flight.invalidFrameCount;
+        ++s_radioAckDropCount;
+        return;
+    }
+
+    s_flight.valid = 1U;
+    s_flight.stage = stage;
+    s_flight.sourceTimeMs = sourceTimeMs;
+    s_flight.lastUpdateMs = nowMs;
+    s_flight.staleReported = 0U;
+    if ((s_taskType == LINE_TASK_DROP) &&
+        (stage == V22_MISSION_STAGE_DROP_ACTION))
+    {
+        s_flight.dropActionSeen = 1U;
+    }
+    if (stage == V22_MISSION_STAGE_ABORT)
+    {
+        s_flight.abortSeen = 1U;
+        s_coordinationSpeedUnlocked = 0U;
+    }
+    if (changed != 0U)
+    {
+        LineMission_WriteFlightEvent("flight_stage", reason, nowMs);
+    }
+    LineMission_TryUnlockCoordinationSpeed(nowMs);
+}
+
+static uint32_t LineMission_RadarDistanceSquaredCm(const CarPoseLinkState_t *pose)
+{
+    int64_t dx;
+    int64_t dy;
+    uint64_t distanceSquared;
+
+    if (pose == 0)
+    {
+        return 0xFFFFFFFFUL;
+    }
+
+    dx = (int64_t)pose->xCm - s_radarAssist.aXCm;
+    dy = (int64_t)pose->yCm - s_radarAssist.aYCm;
+    distanceSquared = (uint64_t)(dx * dx) + (uint64_t)(dy * dy);
+    return (distanceSquared > 0xFFFFFFFFULL) ?
+           0xFFFFFFFFUL : (uint32_t)distanceSquared;
+}
+
+static void LineMission_ResetRadarAssist(void)
+{
+    s_radarAssist.armed = 0U;
+    s_radarAssist.bReached = 0U;
+    s_radarAssist.aReturnPrepared = 0U;
+    s_radarAssist.aStopPrepared = 0U;
+    s_radarAssist.invalidReported = 0U;
+    s_radarAssist.bReachCandidateCount = 0U;
+    s_radarAssist.lastPoseValid = 0U;
+    s_radarAssist.calibrationId = 0U;
+    s_radarAssist.aXCm = 0L;
+    s_radarAssist.aYCm = 0L;
+    s_radarAssist.aDistanceSquaredCm = 0U;
+    s_radarAssist.lastPoseXCm = 0L;
+    s_radarAssist.lastPoseYCm = 0L;
+    s_radarAssist.lastPoseFrameMs = 0U;
+    s_radarAssist.bReachedMs = 0U;
+    s_radarAssist.aPreparedMs = 0U;
+}
+
+static void LineMission_ResetFlightState(void)
+{
+    s_flight.valid = 0U;
+    s_flight.stage = V22_MISSION_STAGE_IDLE;
+    s_flight.telemetryModeCode = V22_MISSION_STAGE_IDLE;
+    s_flight.missionStatusSeen = 0U;
+    s_flight.dropActionSeen = 0U;
+    s_flight.abortSeen = 0U;
+    s_flight.statusFlags = 0U;
+    s_flight.missionId = 0U;
+    s_flight.errorCode = 0U;
+    s_flight.sourceTimeMs = 0U;
+    s_flight.lastUpdateMs = 0U;
+    s_flight.staleReported = 0U;
+    s_flight.lastMissionStatusMs = 0U;
+    s_flight.lastTelemetryMs = 0U;
+    s_flight.missionStatusCount = 0U;
+    s_flight.telemetryCount = 0U;
+    s_flight.invalidFrameCount = 0U;
+}
+
+static void LineMission_ResetTaskSession(LineMissionTaskType_t taskType)
+{
+    /* The physical run owns its task selection even when the Pi/radar link
+     * is unavailable at launch.  A V2.3 task request is queued later, only
+     * after a calibrated pose supplies its required CalibrationId. */
+    s_taskType = taskType;
+    s_taskState = LINE_TASK_STATE_IDLE;
+    s_taskMissionId = 0U;
+    s_taskCalibrationId = 0U;
+    s_taskSequence = 0U;
+    s_taskTxRemaining = 0U;
+    s_taskAckResult = 0xFFU;
+    s_taskAckDetail = 0xFFU;
+    s_taskSourceTimeMs = 0U;
+    s_taskAckDeadlineMs = 0U;
+    s_coordinationSpeedUnlocked = 0U;
+    LineMission_ResetFlightState();
+    LineMission_ResetRadarAssist();
+}
+
+static uint8_t LineMission_ArmRadarAssist(uint32_t nowMs)
+{
+    const CarPoseLinkState_t *pose = CarPoseLink_GetState();
+
+    LineMission_ResetRadarAssist();
+    if ((CarPoseLink_IsTaskReady(nowMs, LINE_RADIO_POSE_FRESH_MS) == 0U) ||
+        (pose->calibrationId != s_taskCalibrationId))
+    {
+        return 0U;
+    }
+
+    s_radarAssist.armed = 1U;
+    s_radarAssist.calibrationId = pose->calibrationId;
+    s_radarAssist.aXCm = pose->xCm;
+    s_radarAssist.aYCm = pose->yCm;
+    s_radarAssist.lastPoseXCm = pose->xCm;
+    s_radarAssist.lastPoseYCm = pose->yCm;
+    s_radarAssist.lastPoseFrameMs = pose->lastFrameMs;
+    s_radarAssist.lastPoseValid = 1U;
+    LineMission_WriteRadarEvent("radar_a_captured", "START_GATE", nowMs);
+    return 1U;
+}
+
+static void LineMission_UpdateRadarAssist(uint32_t nowMs)
+{
+    const CarPoseLinkState_t *pose;
+    int64_t dx;
+    int64_t dy;
+    uint64_t stepDistanceSquared;
+    const uint32_t bDistanceSquared =
+        (uint32_t)(LINE_RADAR_B_REACH_DISTANCE_CM *
+                   LINE_RADAR_B_REACH_DISTANCE_CM);
+    const uint32_t maxStepDistanceSquared =
+        (uint32_t)(LINE_RADAR_MAX_STEP_CM * LINE_RADAR_MAX_STEP_CM);
+    const uint32_t aPrepareDistanceSquared =
+        (uint32_t)(LINE_RADAR_A_PREPARE_RADIUS_CM *
+                   LINE_RADAR_A_PREPARE_RADIUS_CM);
+    const uint32_t aStopDistanceSquared =
+        (uint32_t)(LINE_RADAR_A_STOP_RADIUS_CM *
+                   LINE_RADAR_A_STOP_RADIUS_CM);
+
+    if ((s_radarAssist.armed == 0U) || (LineMission_IsActive() == 0U))
+    {
+        return;
+    }
+    if (CarPoseLink_IsTaskReady(nowMs, LINE_RADIO_POSE_FRESH_MS) == 0U)
+    {
+        return;
+    }
+
+    pose = CarPoseLink_GetState();
+    if (pose->calibrationId != s_radarAssist.calibrationId)
+    {
+        if (s_radarAssist.invalidReported == 0U)
+        {
+            s_radarAssist.invalidReported = 1U;
+            LineMission_WriteRadarEvent("radar_assist_disabled",
+                                        "CALIBRATION_CHANGED", nowMs);
+        }
+        s_radarAssist.armed = 0U;
+        return;
+    }
+
+    /* CarPoseLink is sampled by the control loop more quickly than the Pi
+     * sends pose frames.  Only evaluate a new frame once; otherwise the same
+     * B-point sample would incorrectly count as multiple confirmations. */
+    if ((s_radarAssist.lastPoseValid != 0U) &&
+        (pose->lastFrameMs == s_radarAssist.lastPoseFrameMs))
+    {
+        return;
+    }
+    dx = (int64_t)pose->xCm - s_radarAssist.lastPoseXCm;
+    dy = (int64_t)pose->yCm - s_radarAssist.lastPoseYCm;
+    stepDistanceSquared = (uint64_t)(dx * dx) + (uint64_t)(dy * dy);
+    if (stepDistanceSquared > maxStepDistanceSquared)
+    {
+        /* A single implausible jump must not latch B or arm the return-A
+         * window.  Keep the last trusted sample as the prediction anchor. */
+        if (s_radarAssist.invalidReported == 0U)
+        {
+            s_radarAssist.invalidReported = 1U;
+            LineMission_WriteRadarEvent("radar_pose_jump_rejected",
+                                        "STEP_OVER_40CM", nowMs);
+        }
+        return;
+    }
+    s_radarAssist.lastPoseXCm = pose->xCm;
+    s_radarAssist.lastPoseYCm = pose->yCm;
+    s_radarAssist.lastPoseFrameMs = pose->lastFrameMs;
+    s_radarAssist.lastPoseValid = 1U;
+    s_radarAssist.invalidReported = 0U;
+
+    s_radarAssist.aDistanceSquaredCm = LineMission_RadarDistanceSquaredCm(pose);
+    if ((s_radarAssist.bReached == 0U) &&
+        (s_radarAssist.aDistanceSquaredCm >= bDistanceSquared))
+    {
+        if (s_radarAssist.bReachCandidateCount <
+            LINE_RADAR_B_CONFIRM_SAMPLES)
+        {
+            ++s_radarAssist.bReachCandidateCount;
+        }
+        if (s_radarAssist.bReachCandidateCount >=
+            LINE_RADAR_B_CONFIRM_SAMPLES)
+        {
+            s_radarAssist.bReached = 1U;
+            s_radarAssist.bReachedMs = nowMs;
+            LineMission_WriteRadarEvent("radar_b_reached",
+                                        "A_TO_B_2_FRAMES", nowMs);
+            LineMission_TryUnlockCoordinationSpeed(nowMs);
+        }
+    }
+    else if (s_radarAssist.bReached == 0U)
+    {
+        s_radarAssist.bReachCandidateCount = 0U;
+    }
+
+    if ((s_radarAssist.bReached != 0U) &&
+        (s_radarAssist.aReturnPrepared == 0U) &&
+        (s_radarAssist.aDistanceSquaredCm <= aPrepareDistanceSquared))
+    {
+        s_radarAssist.aReturnPrepared = 1U;
+        s_radarAssist.aPreparedMs = nowMs;
+        LineMission_WriteRadarEvent("radar_a_prepare", "RETURN_WINDOW", nowMs);
+    }
+    if ((s_radarAssist.aReturnPrepared != 0U) &&
+        (s_radarAssist.aStopPrepared == 0U) &&
+        (s_radarAssist.aDistanceSquaredCm <= aStopDistanceSquared))
+    {
+        s_radarAssist.aStopPrepared = 1U;
+        /* This is deliberately only a pre-arm.  The all-black A marker
+         * remains the stop trigger, so a radar sample cannot stop the car by
+         * itself or block the existing marker stop if the pose link drops. */
+        LineMission_WriteRadarEvent("radar_a_stop_prepare", "A_RADIUS", nowMs);
+    }
+}
+
+static void LineMission_UpdateDistanceAssist(uint32_t nowMs)
+{
+    if ((s_taskType != LINE_TASK_DROP) ||
+        (LineMission_IsActive() == 0U) ||
+        (s_radarAssist.bReached != 0U) ||
+        (s_runDistanceMm < LINE_B_ODOMETRY_DISTANCE_MM))
+    {
+        return;
+    }
+
+    /* Encoder path distance is the primary B-progress signal.  Radar B is a
+     * corroborating coordinate assist and may arrive earlier or later. */
+    s_radarAssist.bReached = 1U;
+    s_radarAssist.bReachedMs = nowMs;
+    LineMission_WriteRadarEvent("odometry_b_reached", "ENCODER_DISTANCE",
+                                nowMs);
+    LineMission_TryUnlockCoordinationSpeed(nowMs);
+}
+
+static uint8_t LineMission_QueueTaskRequest(LineMissionTaskType_t taskType,
+                                            uint32_t nowMs)
+{
+    const CarPoseLinkState_t *pose = CarPoseLink_GetState();
+
+    if ((taskType == LINE_TASK_NONE) ||
+        (taskType != s_taskType) ||
+        (CarPoseLink_IsTaskReady(nowMs, LINE_RADIO_POSE_FRESH_MS) == 0U) ||
+        (s_taskState != LINE_TASK_STATE_IDLE) ||
+        (s_abortTxRemaining != 0U) ||
+        (s_abortAckDeadlineMs != 0U))
+    {
+        return 0U;
+    }
+
+    if (s_nextMissionId == 0U)
+    {
+        s_nextMissionId = 1U;
+    }
+    s_taskState = LINE_TASK_STATE_PENDING;
+    s_taskMissionId = s_nextMissionId++;
+    if (s_nextMissionId == 0U)
+    {
+        s_nextMissionId = 1U;
+    }
+    s_taskCalibrationId = pose->calibrationId;
+    s_taskSequence = s_radioSequence++;
+    s_taskTxRemaining = LINE_TASK_REQUEST_RETRY_COUNT;
+    s_taskAckResult = 0xFFU;
+    s_taskAckDetail = 0xFFU;
+    s_taskSourceTimeMs = nowMs;
+    s_taskAckDeadlineMs = 0U;
+    s_coordinationSpeedUnlocked = 0U;
+    LineMission_ResetFlightState();
+    LineMission_WriteTaskEvent("task_request_queued", "RADAR_READY", nowMs);
+    return 1U;
+}
+
+static void LineMission_TryStartRemoteCoordination(uint32_t nowMs)
+{
+    if ((LineMission_IsActive() == 0U) ||
+        (s_taskType == LINE_TASK_NONE) ||
+        (s_taskState != LINE_TASK_STATE_IDLE) ||
+        (CarPoseLink_IsTaskReady(nowMs, LINE_RADIO_POSE_FRESH_MS) == 0U))
+    {
+        return;
+    }
+
+    /* The vehicle may already be following the line.  The Pi pose is used
+     * here solely to build a valid 0x81 packet; it never delays propulsion. */
+    (void)LineMission_QueueTaskRequest(s_taskType, nowMs);
+}
+
+static uint8_t LineMission_SendTaskRequestRadio(uint32_t nowMs)
+{
+    V22Frame_t frame;
+    uint8_t encoded[V22_MAX_FRAME_BYTES];
+    uint16_t length;
+
+    if ((s_taskState != LINE_TASK_STATE_PENDING) ||
+        (s_taskTxRemaining == 0U))
+    {
+        return 0U;
+    }
+
+    frame.version = V22_VERSION;
+    frame.type = V22_TYPE_TASK_REQUEST;
+    frame.source = V22_ADDR_CAR_RADIO;
+    frame.destination = V22_ADDR_AIR_RADIO;
+    frame.sequence = s_taskSequence;
+    frame.flags = V22_FRAME_FLAG_ACK_REQUIRED;
+    if (s_taskTxRemaining < LINE_TASK_REQUEST_RETRY_COUNT)
+    {
+        frame.flags |= V22_FRAME_FLAG_RETRANSMISSION;
+    }
+    frame.length = 12U;
+    frame.payload[0] = (uint8_t)s_taskType;
+    frame.payload[1] = LINE_TASK_REQUEST_FLAGS;
+    LineMission_WriteU16Be(&frame.payload[2], s_taskMissionId);
+    LineMission_WriteU16Be(&frame.payload[4], s_taskCalibrationId);
+    LineMission_WriteU16Be(&frame.payload[6], 0U);
+    LineMission_WriteU32Be(&frame.payload[8], s_taskSourceTimeMs);
+
+    length = V22Protocol_Encode(encoded, sizeof(encoded), &frame);
+    if (length == 0U)
+    {
+        return 0U;
+    }
+    RobotUart_NanoWriteBuffer(encoded, length);
+    --s_taskTxRemaining;
+    if (s_taskTxRemaining == 0U)
+    {
+        s_taskState = LINE_TASK_STATE_WAIT_ACK;
+        s_taskAckDeadlineMs = nowMs + LINE_TASK_ACK_WINDOW_MS;
+    }
+    LineMission_WriteTaskEvent("task_request_tx", "V23_0X81", nowMs);
+    return 1U;
+}
+
+static uint8_t LineMission_SendMissionAbortRadio(uint32_t nowMs)
+{
+    V22Frame_t frame;
+    uint8_t encoded[V22_MAX_FRAME_BYTES];
+    uint16_t length;
+
+    if (s_abortTxRemaining == 0U)
+    {
+        return 0U;
+    }
+
+    /* V2.3 reserves type 0x84 for the physical safety key and specifies no
+     * payload.  The active TaskType/MissionId remains in the flight-side
+     * session; this urgent frame only invalidates that session. */
+    frame.version = V22_VERSION;
+    frame.type = V22_TYPE_MISSION_ABORT;
+    frame.source = V22_ADDR_CAR_RADIO;
+    frame.destination = V22_ADDR_AIR_RADIO;
+    frame.sequence = s_abortSequence;
+    frame.flags = V22_FRAME_FLAG_URGENT | V22_FRAME_FLAG_ACK_REQUIRED;
+    if (s_abortTxRemaining < LINE_MISSION_ABORT_RETRY_COUNT)
+    {
+        frame.flags |= V22_FRAME_FLAG_RETRANSMISSION;
+    }
+    frame.length = 0U;
+
+    length = V22Protocol_Encode(encoded, sizeof(encoded), &frame);
+    if (length == 0U)
+    {
+        return 0U;
+    }
+    RobotUart_NanoWriteBuffer(encoded, length);
+    --s_abortTxRemaining;
+    if (s_abortTxRemaining == 0U)
+    {
+        s_abortAckDeadlineMs = nowMs + LINE_ABORT_ACK_WINDOW_MS;
+    }
+    LineMission_WriteTaskEvent("mission_abort_tx", "V23_0X84", nowMs);
+    return 1U;
+}
+
+static void LineMission_ConsumeRadioAck(const V22Frame_t *frame,
+                                        uint32_t nowMs)
+{
+    uint8_t result;
+
+    if ((frame->type != V22_TYPE_ACK) ||
+        (frame->source != V22_ADDR_AIR_RADIO) ||
+        (frame->destination != V22_ADDR_CAR_RADIO) ||
+        (frame->flags != 0U) || (frame->length != 4U))
+    {
+        if ((frame->type == V22_TYPE_ACK) &&
+            (frame->length >= 1U) &&
+            (frame->payload[0] == V22_TYPE_MISSION_ABORT))
+        {
+            ++s_abortAckDropCount;
+        }
+        ++s_radioAckDropCount;
+        return;
+    }
+
+    result = frame->payload[2];
+    if ((frame->payload[0] == V22_TYPE_TASK_REQUEST) &&
+        (frame->payload[1] == s_taskSequence) &&
+        ((s_taskState == LINE_TASK_STATE_PENDING) ||
+         (s_taskState == LINE_TASK_STATE_WAIT_ACK)))
+    {
+        s_taskAckResult = result;
+        s_taskAckDetail = frame->payload[3];
+        ++s_radioAckFrameCount;
+        s_taskState = ((result == V22_ACK_RESULT_ACCEPTED) ||
+                       (result == V22_ACK_RESULT_DUPLICATE)) ?
+                      LINE_TASK_STATE_ACCEPTED : LINE_TASK_STATE_REJECTED;
+        LineMission_WriteTaskEvent("task_ack", "AIR_RADIO", nowMs);
+        return;
+    }
+
+    if ((frame->payload[0] == V22_TYPE_MISSION_ABORT) &&
+        (frame->payload[1] == s_abortSequence) &&
+        ((s_abortTxRemaining != 0U) || (s_abortAckDeadlineMs != 0U)))
+    {
+        s_abortAckResult = result;
+        s_abortAckDetail = frame->payload[3];
+        s_abortTxRemaining = 0U;
+        s_abortAckDeadlineMs = 0U;
+        ++s_abortAckFrameCount;
+        LineMission_WriteTaskEvent("mission_abort_ack", "AIR_RADIO", nowMs);
+        return;
+    }
+
+    if (frame->payload[0] == V22_TYPE_MISSION_ABORT)
+    {
+        ++s_abortAckDropCount;
+    }
+    ++s_radioAckDropCount;
+}
+
+static void LineMission_ConsumeMissionStatus(const V22Frame_t *frame,
+                                             uint32_t nowMs)
+{
+    const uint8_t stage = frame->payload[1];
+    const uint16_t missionId = LineMission_ReadU16Be(&frame->payload[4]);
+
+    if ((frame->source != V22_ADDR_AIR_RADIO) ||
+        (frame->destination != V22_ADDR_BROADCAST) ||
+        (frame->flags != 0U) ||
+        (frame->length != LINE_MISSION_STATUS_PAYLOAD_LENGTH) ||
+        (LineMission_TaskSessionCanConsumeFlight() == 0U) ||
+        (frame->payload[0] != (uint8_t)s_taskType) ||
+        (missionId != s_taskMissionId) ||
+        (frame->payload[7] != 0U) ||
+        (LineMission_IsFlightStageValid(stage) == 0U))
+    {
+        ++s_flight.invalidFrameCount;
+        ++s_radioAckDropCount;
+        return;
+    }
+
+    s_flight.missionStatusSeen = 1U;
+    s_flight.statusFlags = LineMission_ReadU16Be(&frame->payload[2]);
+    s_flight.missionId = missionId;
+    s_flight.errorCode = frame->payload[6];
+    s_flight.lastMissionStatusMs = nowMs;
+    ++s_flight.missionStatusCount;
+    LineMission_UpdateFlightStage(stage, LineMission_ReadU32Be(&frame->payload[8]),
+                                  "MISSION_STATUS", nowMs);
+}
+
+static void LineMission_ConsumeFlightTelemetry(const V22Frame_t *frame,
+                                                uint32_t nowMs)
+{
+    const uint8_t modeCode = frame->payload[3];
+
+    if ((frame->source != V22_ADDR_AIR_RADIO) ||
+        (frame->destination != V22_ADDR_BROADCAST) ||
+        (frame->flags != 0U) ||
+        (frame->length != LINE_FLIGHT_TELEMETRY_PAYLOAD_LENGTH) ||
+        (frame->payload[2] != V22_COORDINATE_FIELD_GLOBAL) ||
+        (LineMission_IsFlightStageValid(modeCode) == 0U))
+    {
+        ++s_flight.invalidFrameCount;
+        ++s_radioAckDropCount;
+        return;
+    }
+
+    s_flight.telemetryModeCode = modeCode;
+    s_flight.lastTelemetryMs = nowMs;
+    ++s_flight.telemetryCount;
+
+    /* A telemetry broadcast carries no TaskType/MissionId.  The matching
+     * 0x81 ACK binds it to this local task; a matching MISSION_STATUS adds
+     * stronger confirmation but must not be required, otherwise a dropped
+     * first 0x82 packet would prevent the specified 2 Hz recovery path. */
+    if ((LineMission_TaskSessionCanConsumeFlight() != 0U) &&
+        ((s_taskState == LINE_TASK_STATE_ACCEPTED) ||
+         (s_flight.missionStatusSeen != 0U)))
+    {
+        LineMission_UpdateFlightStage(modeCode,
+                                      LineMission_ReadU32Be(&frame->payload[20]),
+                                      "FLIGHT_TELEMETRY", nowMs);
+    }
+}
+
+static void LineMission_PollRadioRx(uint32_t nowMs)
+{
+    V22Frame_t frame;
+    V22ParseResult_t result;
+    uint8_t byte;
+    uint16_t count = 0U;
+
+    result = V22Protocol_ParserCheckTimeout(&s_radioRxParser, nowMs);
+    if (result != V22_PARSE_NONE)
+    {
+        ++s_radioAckDropCount;
+    }
+    while ((count < LINE_RADIO_RX_POLL_LIMIT) &&
+           (RobotUart_NanoTryReadByte(&byte) != 0U))
+    {
+        result = V22Protocol_ParserPush(&s_radioRxParser, byte, nowMs, &frame);
+        if (result == V22_PARSE_FRAME)
+        {
+            if (frame.type == V22_TYPE_ACK)
+            {
+                LineMission_ConsumeRadioAck(&frame, nowMs);
+            }
+            else if (frame.type == V22_TYPE_MISSION_STATUS)
+            {
+                LineMission_ConsumeMissionStatus(&frame, nowMs);
+            }
+            else if (frame.type == V22_TYPE_FLIGHT_TELEMETRY)
+            {
+                LineMission_ConsumeFlightTelemetry(&frame, nowMs);
+            }
+            else
+            {
+                ++s_radioAckDropCount;
+            }
+        }
+        else if (result != V22_PARSE_NONE)
+        {
+            ++s_radioAckDropCount;
+        }
+        ++count;
+    }
+    s_radioUartErrorFlags |= RobotUart_NanoConsumeErrorFlags();
+
+    if ((s_taskState == LINE_TASK_STATE_WAIT_ACK) &&
+        ((int32_t)(nowMs - s_taskAckDeadlineMs) >= 0))
+    {
+        s_taskState = LINE_TASK_STATE_TIMEOUT;
+        LineMission_WriteTaskEvent("task_ack_timeout", "NO_AIR_ACK", nowMs);
+    }
+
+    if ((s_abortTxRemaining == 0U) &&
+        (s_abortAckDeadlineMs != 0U) &&
+        ((int32_t)(nowMs - s_abortAckDeadlineMs) >= 0))
+    {
+        s_abortAckDeadlineMs = 0U;
+        ++s_abortAckDropCount;
+        LineMission_WriteTaskEvent("mission_abort_ack_timeout",
+                                   "NO_AIR_ACK", nowMs);
+    }
 }
 
 static void LineMission_WriteMaintenanceEvent(const char *event,
@@ -1066,7 +2169,7 @@ static void LineMission_WriteMaintenanceEvent(const char *event,
 
 static uint8_t LineMission_RequestMaintenanceReset(uint32_t nowMs)
 {
-    if (LineMission_IsActive() != 0U)
+    if (LineMission_IsMissionBusy() != 0U)
     {
         LineMission_WriteMaintenanceEvent("maintenance_reset_rejected",
                                           "CAR_RUNNING", nowMs);
@@ -1091,7 +2194,7 @@ static uint8_t LineMission_RequestMaintenanceReset(uint32_t nowMs)
         s_maintenanceNextResetId = 1U;
     }
     s_maintenanceResetId = s_maintenanceNextResetId;
-    /* Project decision: PG9 is a direct ground-station maintenance event.
+    /* PG12 is a direct ground-station maintenance event.
      * It does not write to UART4 or ask the radar/Pi to clear any state. */
     s_maintenanceBroadcastSourceTimeMs = nowMs;
     s_maintenanceBroadcastRemaining = LINE_MAINTENANCE_BROADCAST_COUNT;
@@ -1102,7 +2205,7 @@ static uint8_t LineMission_RequestMaintenanceReset(uint32_t nowMs)
         s_maintenanceNextResetId = 1U;
     }
     LineMission_WriteMaintenanceEvent("maintenance_reset_queued",
-                                      "PG9_HOLD_DIRECT_GROUND", nowMs);
+                                      "PG12_HOLD_DIRECT_GROUND", nowMs);
     return 1U;
 }
 
@@ -1143,33 +2246,56 @@ static void LineMission_UpdateRadioLink(uint32_t nowMs)
     const CarPoseLinkState_t *pose;
 
     CarPoseLink_Poll(nowMs);
+    LineMission_PollRadioRx(nowMs);
     pose = CarPoseLink_GetState();
 
-    if ((s_maintenanceBroadcastRemaining != 0U) &&
-        (LineMission_CarSlotDue(nowMs) != 0U))
+    if (LineMission_CarSlotDue(nowMs) == 0U)
+    {
+        return;
+    }
+
+    /* A physical emergency stop has priority over every other outbound frame.
+     * Send its three copies in three consecutive car slots, then resume the
+     * normal pose/task schedule while the ACK window is open. */
+    if (s_abortTxRemaining != 0U)
+    {
+        if (LineMission_SendMissionAbortRadio(nowMs) != 0U)
+        {
+            LineMission_MarkRadioSlot(nowMs);
+        }
+        return;
+    }
+
+    if (s_maintenanceBroadcastRemaining != 0U)
     {
         if (LineMission_SendMaintenanceResetRadio(nowMs) != 0U)
         {
             --s_maintenanceBroadcastRemaining;
-            s_lastRadioPoseTxMs = nowMs;
-            s_radioPoseStarted = 1U;
+            LineMission_MarkRadioSlot(nowMs);
             LineMission_WriteMaintenanceEvent("maintenance_reset_radio_tx",
                                               "V23_0X85", nowMs);
         }
         return;
     }
 
+    /* A task request owns the complete slot.  This preserves the protocol's
+     * three-consecutive-slot retry rule; CAR_POSE resumes on the next slot. */
+    if (s_taskState == LINE_TASK_STATE_PENDING)
+    {
+        if (LineMission_SendTaskRequestRadio(nowMs) != 0U)
+        {
+            LineMission_MarkRadioSlot(nowMs);
+        }
+        return;
+    }
+
     if (CarPoseLink_IsFresh(nowMs, LINE_RADIO_POSE_FRESH_MS) != 0U)
     {
-        if (LineMission_CarSlotDue(nowMs) != 0U)
+        if (LineMission_SendCarPose(pose) == 0U)
         {
-            if (LineMission_SendCarPose(pose) == 0U)
-            {
-                ++s_radioPoseDropCount;
-            }
-            s_lastRadioPoseTxMs = nowMs;
-            s_radioPoseStarted = 1U;
+            ++s_radioPoseDropCount;
         }
+        LineMission_MarkRadioSlot(nowMs);
         return;
     }
 
@@ -1179,49 +2305,44 @@ static void LineMission_UpdateRadioLink(uint32_t nowMs)
     if (LineMission_IsActive() == 0U)
     {
         LineMission_UpdateRadioHeartbeat(nowMs);
+        LineMission_MarkRadioSlot(nowMs);
     }
 }
 
-static void LineMission_ButtonInit(uint32_t nowMs)
+static uint8_t LineMission_ButtonReadPressed(uint16_t pin)
 {
-    GPIO_InitTypeDef gpio;
-    uint8_t pressed;
-
-    RCC_APB2PeriphClockCmd(RCC_APB2Periph_GPIOG, ENABLE);
-    GPIO_StructInit(&gpio);
-    /* PG10 is the run key; PG9 is the dedicated V2.3 maintenance-reset
-     * key.  Both are active-low physical keys with internal pull-ups. */
-    gpio.GPIO_Pin = GPIO_Pin_9 | GPIO_Pin_10;
-    gpio.GPIO_Mode = GPIO_Mode_IPU;
-    gpio.GPIO_Speed = GPIO_Speed_2MHz;
-    GPIO_Init(GPIOG, &gpio);
-
-    pressed = (GPIO_ReadInputDataBit(GPIOG, GPIO_Pin_10) == Bit_RESET) ? 1U : 0U;
-    s_buttonStablePressed = pressed;
-    s_buttonCandidatePressed = pressed;
-    s_buttonCandidateSinceMs = nowMs;
-    s_maintenanceButtonPressed =
-        (GPIO_ReadInputDataBit(GPIOG, GPIO_Pin_9) == Bit_RESET) ? 1U : 0U;
-    s_maintenanceButtonHandled = 0U;
-    s_maintenanceButtonSinceMs = nowMs;
+    return (GPIO_ReadInputDataBit(GPIOG, pin) == Bit_RESET) ? 1U : 0U;
 }
 
-static uint8_t LineMission_ButtonPressedEvent(uint32_t nowMs)
+static void LineMission_ButtonInitOne(LineMissionButton_t *button,
+                                      uint16_t pin,
+                                      uint32_t nowMs)
 {
-    uint8_t rawPressed = (GPIO_ReadInputDataBit(GPIOG, GPIO_Pin_10) == Bit_RESET) ?
-                         1U : 0U;
+    uint8_t pressed = LineMission_ButtonReadPressed(pin);
 
-    if (rawPressed != s_buttonCandidatePressed)
+    button->stablePressed = pressed;
+    button->candidatePressed = pressed;
+    button->candidateSinceMs = nowMs;
+}
+
+static uint8_t LineMission_ButtonUpdate(LineMissionButton_t *button,
+                                        uint16_t pin,
+                                        uint32_t nowMs)
+{
+    uint8_t rawPressed = LineMission_ButtonReadPressed(pin);
+
+    if (rawPressed != button->candidatePressed)
     {
-        s_buttonCandidatePressed = rawPressed;
-        s_buttonCandidateSinceMs = nowMs;
+        button->candidatePressed = rawPressed;
+        button->candidateSinceMs = nowMs;
     }
 
-    if ((s_buttonCandidatePressed != s_buttonStablePressed) &&
-        ((uint32_t)(nowMs - s_buttonCandidateSinceMs) >= LINE_BUTTON_DEBOUNCE_MS))
+    if ((button->candidatePressed != button->stablePressed) &&
+        ((uint32_t)(nowMs - button->candidateSinceMs) >=
+         LINE_BUTTON_DEBOUNCE_MS))
     {
-        s_buttonStablePressed = s_buttonCandidatePressed;
-        if (s_buttonStablePressed != 0U)
+        button->stablePressed = button->candidatePressed;
+        if (button->stablePressed != 0U)
         {
             s_lastButtonPressMs = nowMs;
             return 1U;
@@ -1230,21 +2351,42 @@ static uint8_t LineMission_ButtonPressedEvent(uint32_t nowMs)
     return 0U;
 }
 
-static void LineMission_HandleMaintenanceButton(uint32_t nowMs)
+static void LineMission_ButtonInit(uint32_t nowMs)
 {
-    uint8_t rawPressed =
-        (GPIO_ReadInputDataBit(GPIOG, GPIO_Pin_9) == Bit_RESET) ? 1U : 0U;
+    GPIO_InitTypeDef gpio;
 
-    if (rawPressed == 0U)
+    RCC_APB2PeriphClockCmd(RCC_APB2Periph_GPIOG, ENABLE);
+    GPIO_StructInit(&gpio);
+    /* All task keys are active-low.  PG13 starts task 1, PG9 starts task 2
+     * and a subsequent press of either key safely stops an active run.  PG12
+     * remains the held manual-calibration key.  PG10 is intentionally unused. */
+    gpio.GPIO_Pin = GPIO_Pin_9 | GPIO_Pin_12 | GPIO_Pin_13;
+    gpio.GPIO_Mode = GPIO_Mode_IPU;
+    gpio.GPIO_Speed = GPIO_Speed_2MHz;
+    GPIO_Init(GPIOG, &gpio);
+
+    LineMission_ButtonInitOne(&s_taskOneButton, GPIO_Pin_13, nowMs);
+    LineMission_ButtonInitOne(&s_taskTwoButton, GPIO_Pin_9, nowMs);
+    LineMission_ButtonInitOne(&s_calibrationButton, GPIO_Pin_12, nowMs);
+    s_maintenanceButtonPressed = s_calibrationButton.stablePressed;
+    s_maintenanceButtonHandled = 0U;
+    s_maintenanceButtonSinceMs = nowMs;
+}
+
+static void LineMission_HandleMaintenanceButton(uint8_t pressedEvent,
+                                                uint32_t nowMs)
+{
+    if (s_calibrationButton.stablePressed == 0U)
     {
         s_maintenanceButtonPressed = 0U;
         s_maintenanceButtonHandled = 0U;
         return;
     }
 
-    if (s_maintenanceButtonPressed == 0U)
+    if ((s_maintenanceButtonPressed == 0U) || (pressedEvent != 0U))
     {
         s_maintenanceButtonPressed = 1U;
+        s_maintenanceButtonHandled = 0U;
         s_maintenanceButtonSinceMs = nowMs;
         return;
     }
@@ -1261,6 +2403,7 @@ static void LineMission_HandleMaintenanceButton(uint32_t nowMs)
 static void LineMission_ResetRunControllers(void)
 {
     Encoder_Reset();
+    s_runDistanceMm = 0U;
     LineMission_VelocityWindowReset(&s_leftVelocityWindow);
     LineMission_VelocityWindowReset(&s_rightVelocityWindow);
     s_measuredLeftCps = 0;
@@ -1283,6 +2426,7 @@ static void LineMission_ResetRunControllers(void)
     s_lapYawTravelValid = 0U;
     s_lastLapYawTenths = 0;
     s_lapYawTravelTenths = 0L;
+    s_runDistanceMm = 0U;
     s_frozenWriteIndex = 0U;
     s_frozenCount = 0U;
     s_frozen = 0U;
@@ -1291,6 +2435,7 @@ static void LineMission_ResetRunControllers(void)
 static int16_t LineMission_SelectBaseCps(void)
 {
     int32_t absError = LineMission_Abs(s_observer.grayErrorX100);
+    uint8_t fast = s_coordinationSpeedUnlocked;
 
     if (s_state == LINE_MISSION_LEAVE_A)
     {
@@ -1298,25 +2443,37 @@ static int16_t LineMission_SelectBaseCps(void)
     }
     if (s_state == LINE_MISSION_LOST_HOLD)
     {
-        return LineMission_MmToCps(LINE_LOST_HOLD_SPEED_MM_S);
+        return LineMission_MmToCps((fast != 0U) ?
+                                   LINE_POST_COORD_LOST_HOLD_SPEED_MM_S :
+                                   LINE_COOP_LOST_HOLD_SPEED_MM_S);
     }
     if (s_observer.lineClass == LINE_OBSERVER_WIDE)
     {
-        return LineMission_MmToCps(LINE_WIDE_SPEED_MM_S);
+        return LineMission_MmToCps((fast != 0U) ?
+                                   LINE_POST_COORD_WIDE_SPEED_MM_S :
+                                   LINE_COOP_WIDE_SPEED_MM_S);
     }
     if (absError >= 500L)
     {
-        return LineMission_MmToCps(LINE_TIGHT_CURVE_SPEED_MM_S);
+        return LineMission_MmToCps((fast != 0U) ?
+                                   LINE_POST_COORD_TIGHT_CURVE_SPEED_MM_S :
+                                   LINE_COOP_TIGHT_CURVE_SPEED_MM_S);
     }
     if (absError > 300L)
     {
-        return LineMission_MmToCps(LINE_HARD_CURVE_SPEED_MM_S);
+        return LineMission_MmToCps((fast != 0U) ?
+                                   LINE_POST_COORD_HARD_CURVE_SPEED_MM_S :
+                                   LINE_COOP_HARD_CURVE_SPEED_MM_S);
     }
     if (absError > 100L)
     {
-        return LineMission_MmToCps(LINE_CURVE_SPEED_MM_S);
+        return LineMission_MmToCps((fast != 0U) ?
+                                   LINE_POST_COORD_CURVE_SPEED_MM_S :
+                                   LINE_COOP_CURVE_SPEED_MM_S);
     }
-    return LineMission_MmToCps(LINE_BASE_SPEED_MM_S);
+    return LineMission_MmToCps((fast != 0U) ?
+                               LINE_POST_COORD_BASE_SPEED_MM_S :
+                               LINE_BASE_SPEED_MM_S);
 }
 
 static void LineMission_ApplySpeedControl(uint32_t samplePeriodMs)
@@ -1372,27 +2529,67 @@ static void LineMission_ApplySpeedControl(uint32_t samplePeriodMs)
     AuxTb6612_Enable(1U);
 }
 
-static void LineMission_HandleButton(uint32_t nowMs)
+static void LineMission_RequestTaskStart(LineMissionTaskType_t taskType,
+                                         const char *reason,
+                                         uint32_t nowMs)
 {
-    if (LineMission_ButtonPressedEvent(nowMs) == 0U)
-    {
-        return;
-    }
-
-    LineMission_WriteEvent("button_press", "PG10_EDGE", nowMs);
-
-    if (LineMission_IsActive() != 0U)
-    {
-        LineMission_Stop(LINE_MISSION_SAFE_STOP, nowMs, "PG10_MANUAL_STOP");
-        return;
-    }
+    LineMission_WriteEvent("button_press", reason, nowMs);
 
     if (s_observer.lineClass != LINE_OBSERVER_A_MARK)
     {
         LineMission_WriteEvent("start_rejected", "REQUIRE_A_FULL_BLACK", nowMs);
         return;
     }
-    LineMission_EnterState(LINE_MISSION_START_GATE, nowMs, "PG10_START_REQUEST");
+    if ((s_taskState == LINE_TASK_STATE_PENDING) ||
+        (s_taskState == LINE_TASK_STATE_WAIT_ACK) ||
+        (s_abortTxRemaining != 0U) ||
+        (s_abortAckDeadlineMs != 0U))
+    {
+        LineMission_WriteEvent("start_rejected", "RADIO_SESSION_BUSY", nowMs);
+        return;
+    }
+
+    s_startTaskType = taskType;
+    LineMission_EnterState(LINE_MISSION_START_GATE, nowMs, reason);
+}
+
+static void LineMission_HandleButtons(uint32_t nowMs)
+{
+    uint8_t taskOnePressed = LineMission_ButtonUpdate(&s_taskOneButton,
+                                                       GPIO_Pin_13, nowMs);
+    uint8_t taskTwoPressed = LineMission_ButtonUpdate(&s_taskTwoButton,
+                                                       GPIO_Pin_9, nowMs);
+    uint8_t calibrationPressed = LineMission_ButtonUpdate(&s_calibrationButton,
+                                                           GPIO_Pin_12, nowMs);
+
+    LineMission_HandleMaintenanceButton(calibrationPressed, nowMs);
+
+    if ((taskOnePressed == 0U) && (taskTwoPressed == 0U))
+    {
+        return;
+    }
+
+    if (LineMission_IsMissionBusy() != 0U)
+    {
+        /* A second press of either physical task key is the field emergency
+         * stop.  Treat either key as safe-stop while running so a mistaken
+         * task-key press never starts a different mission mid-run. */
+        LineMission_Stop(LINE_MISSION_SAFE_STOP, nowMs,
+                         (taskOnePressed != 0U) ? "PG13_MANUAL_STOP" :
+                                                   "PG9_MANUAL_STOP");
+        return;
+    }
+
+    if (taskOnePressed != 0U)
+    {
+        LineMission_RequestTaskStart(LINE_TASK_DROP, "PG13_TASK1_REQUEST",
+                                     nowMs);
+    }
+    else
+    {
+        LineMission_RequestTaskStart(LINE_TASK_DYNAMIC_LANDING,
+                                     "PG9_TASK2_REQUEST", nowMs);
+    }
 }
 
 static void LineMission_UpdateRunState(uint32_t nowMs)
@@ -1403,13 +2600,35 @@ static void LineMission_UpdateRunState(uint32_t nowMs)
             (s_observer.gyroFresh != 0U))
         {
             LineMission_ResetRunControllers();
+            LineMission_ResetTaskSession(s_startTaskType);
+
+            /* Radar/Pi data is an auxiliary coordinate check.  Preserve an
+             * A-point reference when it is present at launch, but never turn
+             * its absence into a propulsion gate. */
+            if (CarPoseLink_IsTaskReady(nowMs, LINE_RADIO_POSE_FRESH_MS) != 0U)
+            {
+                s_taskCalibrationId = CarPoseLink_GetState()->calibrationId;
+                if (LineMission_ArmRadarAssist(nowMs) == 0U)
+                {
+                    LineMission_WriteRadarEvent("radar_assist_deferred",
+                                                "A_CAPTURE_FAILED", nowMs);
+                }
+            }
+            else
+            {
+                LineMission_WriteTaskEvent("task_coordination_deferred",
+                                           "RADAR_NOT_READY", nowMs);
+            }
             LineObserver_ResetHeadingReference(&s_observer);
             LineMission_ResetLapTurnProgress();
             s_runStartMs = nowMs;
+            s_startTaskType = LINE_TASK_NONE;
             LineMission_EnterState(LINE_MISSION_LEAVE_A, nowMs, "START_OK");
+            LineMission_TryStartRemoteCoordination(nowMs);
         }
         else if ((uint32_t)(nowMs - s_stateStartMs) >= LINE_START_GYRO_WAIT_MS)
         {
+            s_startTaskType = LINE_TASK_NONE;
             LineMission_EnterState(LINE_MISSION_IDLE, nowMs, "GYRO_NOT_FRESH");
         }
         return;
@@ -1419,6 +2638,11 @@ static void LineMission_UpdateRunState(uint32_t nowMs)
     {
         return;
     }
+
+    /* Once a valid Pi pose arrives, send the 0x81 task request with its
+     * CalibrationId.  A delayed link can therefore restore aircraft
+     * coordination without ever interrupting local line following. */
+    LineMission_TryStartRemoteCoordination(nowMs);
 
     if ((LINE_REQUIRE_GYRO_FOR_START != 0) &&
         ((s_observer.gyroFresh == 0U) ||
@@ -1440,7 +2664,29 @@ static void LineMission_UpdateRunState(uint32_t nowMs)
         return;
     }
 
+    if ((s_flight.valid != 0U) &&
+        ((uint32_t)(nowMs - s_flight.lastUpdateMs) >=
+         LINE_FLIGHT_STATE_STALE_MS))
+    {
+        if (s_flight.staleReported == 0U)
+        {
+            s_flight.staleReported = 1U;
+            if (s_coordinationSpeedUnlocked != 0U)
+            {
+                s_coordinationSpeedUnlocked = 0U;
+                LineMission_WriteFlightEvent("coord_speed_relocked",
+                                             "FLIGHT_STATE_STALE", nowMs);
+            }
+        }
+        else
+        {
+            s_coordinationSpeedUnlocked = 0U;
+        }
+    }
+
     LineMission_UpdateLapTurnProgress();
+    LineMission_UpdateRadarAssist(nowMs);
+    LineMission_UpdateDistanceAssist(nowMs);
 
     if ((s_state == LINE_MISSION_TRACK) &&
         (LineMission_IsFollowableLineClass(s_observer.lineClass) != 0U))
@@ -1526,7 +2772,9 @@ static void LineMission_UpdateRunState(uint32_t nowMs)
         if ((uint32_t)s_completeMarkCount * LINE_CONTROL_PERIOD_MS >=
             LINE_COMPLETE_MARK_MS)
         {
-            LineMission_Stop(LINE_MISSION_COMPLETE, nowMs, "A_MARK_RETURN");
+            LineMission_Stop(LINE_MISSION_COMPLETE, nowMs,
+                             (s_radarAssist.aStopPrepared != 0U) ?
+                             "A_MARK_RETURN_RADAR_READY" : "A_MARK_RETURN");
         }
     }
     else
@@ -1571,10 +2819,35 @@ void LineFollowMission_Init(uint32_t nowMs)
     s_radioHeartbeatStarted = 0U;
     s_lastRadioHeartbeatMs = 0U;
     s_radioHeartbeatTxCount = 0U;
-    s_radioPoseStarted = 0U;
-    s_lastRadioPoseTxMs = 0U;
+    s_lastRadioSlot = 0xFFFFFFFFUL;
     s_radioPoseTxCount = 0U;
     s_radioPoseDropCount = 0U;
+    V22Protocol_ParserInit(&s_radioRxParser);
+    s_radioAckFrameCount = 0U;
+    s_radioAckDropCount = 0U;
+    s_radioUartErrorFlags = 0U;
+    s_startTaskType = LINE_TASK_NONE;
+    s_taskType = LINE_TASK_NONE;
+    s_taskState = LINE_TASK_STATE_IDLE;
+    s_nextMissionId = 1U;
+    s_taskMissionId = 0U;
+    s_taskCalibrationId = 0U;
+    s_taskSequence = 0U;
+    s_taskTxRemaining = 0U;
+    s_taskAckResult = 0xFFU;
+    s_taskAckDetail = 0xFFU;
+    s_taskSourceTimeMs = 0U;
+    s_taskAckDeadlineMs = 0U;
+    s_abortSequence = 0U;
+    s_abortTxRemaining = 0U;
+    s_abortAckResult = 0xFFU;
+    s_abortAckDetail = 0xFFU;
+    s_abortAckDeadlineMs = 0U;
+    s_abortAckFrameCount = 0U;
+    s_abortAckDropCount = 0U;
+    s_coordinationSpeedUnlocked = 0U;
+    LineMission_ResetFlightState();
+    LineMission_ResetRadarAssist();
     s_maintenanceResetId = 0U;
     s_maintenanceNextResetId = 1U;
     s_maintenanceBroadcastRemaining = 0U;
@@ -1597,7 +2870,7 @@ void LineFollowMission_Init(uint32_t nowMs)
     s_rearRightRawPercent = 0;
     LineMission_MotorOff();
 
-    DiagUart_WriteString("LF,boot,mode=COMPETITION_LINE_FOLLOW,start_key=PG10_active_low,maint_key=PG9_hold2s_after_stop12s_direct_ground,");
+    DiagUart_WriteString("LF,boot,mode=COMPETITION_LINE_FOLLOW,task1_key=PG13_active_low,task2_key=PG9_active_low,repeat_task_key=manual_stop,maint_key=PG12_hold2s_after_stop12s_direct_ground,");
     DiagUart_WriteString("gray=pc0_pc1_pc2_pg0,white_raw=0,center_mask=24,");
     DiagUart_WriteString("front=pa2_pa3_pe2_pe6,rear=pe13_pe14_pf1_pf4_pb9,enc_front=tim5_tim3,rear=open_loop_follower,");
     DiagUart_WriteString("forward_sign=fl-1_fr-1_rl+1_rr-1,gyro=usart2_remap_pd5_tx_pd6_rx_9600,pi_pose=uart4_v22_31_to_32,");
@@ -1607,8 +2880,10 @@ void LineFollowMission_Init(uint32_t nowMs)
     DiagUart_WriteInt32(LineMission_MmToCps(LINE_BASE_SPEED_MM_S));
     DiagUart_WriteString(",gyro_required=");
     DiagUart_WriteUInt32(LINE_REQUIRE_GYRO_FOR_START);
-    DiagUart_WriteString(",radio=pose80_10hz_if_fresh_else_idle_hb03_500ms,task_request=disabled\r\n");
-    DiagUart_WriteString("LF,commands,P=status,F=dump_frozen,S=manual_stop,H=help; start=PG10,maint_event=PG9_hold2s\r\n");
+    DiagUart_WriteString(",distance_source=ENCODER_PATH_MM,jy901_yaw_primary=1,a_return_min_distance_mm=");
+    DiagUart_WriteUInt32(LINE_A_RETURN_MIN_DISTANCE_MM);
+    DiagUart_WriteString(",radio=pose80_10hz_if_fresh_else_idle_hb03_500ms,task81_three_slots,abort84_urgent,flight02+mission82_rx\r\n");
+    DiagUart_WriteString("LF,commands,P=status,F=dump_frozen,S=manual_stop,H=help; task1=PG13,task2=PG9,repeat_task_key=stop,maint_event=PG12_hold2s\r\n");
 }
 
 void LineFollowMission_Update(uint32_t nowMs)
@@ -1616,12 +2891,15 @@ void LineFollowMission_Update(uint32_t nowMs)
     uint32_t samplePeriodMs;
 
     LineMission_UpdateRadioLink(nowMs);
-    LineMission_HandleButton(nowMs);
-    if (LineMission_IsActive() != 0U)
+    if (LineMission_IsMissionBusy() != 0U)
     {
         s_maintenanceStationarySinceMs = nowMs;
     }
-    LineMission_HandleMaintenanceButton(nowMs);
+    LineMission_HandleButtons(nowMs);
+    if (LineMission_IsMissionBusy() != 0U)
+    {
+        s_maintenanceStationarySinceMs = nowMs;
+    }
 
     samplePeriodMs = nowMs - s_lastControlMs;
     if (samplePeriodMs < LINE_CONTROL_PERIOD_MS)
@@ -1639,6 +2917,10 @@ void LineFollowMission_Update(uint32_t nowMs)
                                                          samplePeriodMs);
     LineObserver_Update(&s_observer, nowMs);
     LineMission_UpdateRunState(nowMs);
+    if (LineMission_IsActive() != 0U)
+    {
+        LineMission_AccumulateRunDistance();
+    }
 
     if (LineMission_IsActive() != 0U)
     {
@@ -1705,7 +2987,7 @@ void LineFollowMission_HandleCommand(char command, uint32_t nowMs)
         case 'H':
         case 'h':
         case '?':
-            DiagUart_WriteString("LF,commands,P=status,F=dump_frozen,S=manual_stop,H=help; start=PG10,maint_event=PG9_hold2s_after_stop12s\r\n");
+            DiagUart_WriteString("LF,commands,P=status,F=dump_frozen,S=manual_stop,H=help; task1=PG13,task2=PG9,repeat_task_key=stop,maint_event=PG12_hold2s_after_stop12s\r\n");
             break;
         default:
             break;

@@ -15,7 +15,9 @@ Resolve a conflict in this order:
 1. Current physical wiring and a repeatable observation from this build.
 2. `references/rules.md` and `docs/D题小车端实施基线.md`.
 3. The current STM32F103ZET6 source selected by the active CMake preset.
-4. `F:\keil5\stm\docs\D题_通用通信与接口规范_v2.2.docx` for V2.2 communication behavior.
+4. `F:\keil5\stm\ZET6 HAl\lidar_car\docs\D题_通用通信与接口规范_v2.3.docx`
+   for authoritative V2.3 communication behavior. The on-wire Version field
+   remains `0x02`.
 5. `docs/D题 回复.txt` for official clarifications.
 6. Historical MSPM0/lidar, old motor tests, chat notes, and web examples.
 
@@ -37,25 +39,21 @@ before changing either one.
   four-wheel competition regression remains incomplete.
 - Rear encoder pins are wired as test inputs only. Their TIM4/TIM8 hardware
   encoder initialization and direction calibration are not yet complete.
-- LoRa transparent wireless is bench verified on UART5: `PC12=MCU TX -> radio
-  RX`, `PD2=MCU RX <- radio TX`, 115200 8N1. The exact 2026-07-30 V2.2
-  `CAR_POSE` fixture passed in the radio-to-PC direction and the calibration
-  fixture passed in the PC-to-radio direction. This is transport evidence only:
-  no 10 Hz pose publication, slot policy, Pi pose ingress, task request, or
-  calibration forwarding is enabled yet. Radar serial ownership, wheel
-  circumference, final speed limits, and gray lost-line/wide-line policy remain
-  hardware decisions. The flight controller owns MaixCam ModeSeq/session
-  control; do not manufacture a car-side camera interface.
-- `LineFollowJY901Debug` completed one physical lap on 2026-07-30: KEY2/PG10
-  gates motion; gray supplies nonlinear differential/yaw-rate reference; direct
-  WIT/JY901 yaw supplies bounded correction; and the front encoders feed two
-  600 mm/s nominal LADRC loops. The evidence log is
-  `logs/line_follow_frozen_20260730-170644.log`. The lap was manually stopped:
-  automatic return-to-A detection remains unverified because the curved A-end
-  marker did not hold stable `0xFF`. Do not raise speed or claim final field
-  acceptance until that stop gate is repaired and repeated. The image sends only
-  one V2.2 heartbeat placeholder at start, never a formal task request; radar
-  pose remains outside this control loop.
+- UART5 LoRa transport is `PC12=MCU TX -> radio RX`, `PD2=MCU RX <- radio TX`,
+  115200 8N1. `LineFollowMissionDebug` sends fresh `CAR_POSE (0x80)` at 10 Hz,
+  sends physical-button `CAR_TASK_REQUEST (0x81)` in three car slots after a
+  valid Pi calibration becomes available, receives `MISSION_STATUS (0x82)` and
+  `FLIGHT_TELEMETRY (0x02)`, and emits three urgent `MISSION_ABORT (0x84)`
+  copies on a task-key safety stop. The flight controller owns MaixCam
+  ModeSeq/session control; do not manufacture a car-side camera interface.
+- The current competition image is `LineFollowMissionDebug`: PG13 starts task
+  one, PG9 starts task two, and either task key is an active-run safety stop.
+  PG12 is the stopped-for-12-s, held-for-2-s maintenance key; PG10 is unused.
+  A full-black A marker and fresh JY901 gate local propulsion. Pi/radar pose is
+  auxiliary: it supplies a valid `CalibrationId`, coordinate display, B/A
+  preparation, and delayed task coordination but never blocks local line
+  following. Both tasks start at about 120 mm/s; verified flight-stage gates
+  may open the approximately 180 mm/s envelope.
 
 ## Documentation And Evidence
 

@@ -312,3 +312,23 @@ uint8_t CarPoseLink_IsFresh(uint32_t nowMs, uint32_t maxAgeMs)
     }
     return ((uint32_t)(nowMs - s_state.lastFrameMs) <= maxAgeMs) ? 1U : 0U;
 }
+
+uint8_t CarPoseLink_IsTaskReady(uint32_t nowMs, uint32_t maxAgeMs)
+{
+    const uint8_t requiredFlags = V22_POSE_FLAG_POSITION_VALID |
+                                  V22_POSE_FLAG_YAW_VALID |
+                                  V22_POSE_FLAG_CALIBRATED;
+
+    if (CarPoseLink_IsFresh(nowMs, maxAgeMs) == 0U)
+    {
+        return 0U;
+    }
+    if ((s_state.sourceFormat != CAR_POSE_LINK_SOURCE_V22) ||
+        (s_state.coordinateFrame != V22_COORDINATE_FIELD_GLOBAL) ||
+        ((s_state.poseFlags & requiredFlags) != requiredFlags) ||
+        (s_state.calibrationId == 0U))
+    {
+        return 0U;
+    }
+    return 1U;
+}

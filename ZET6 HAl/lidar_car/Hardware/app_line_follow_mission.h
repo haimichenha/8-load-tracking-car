@@ -3,7 +3,8 @@
 
 #include "stm32f10x.h"
 
-/* Physical start/stop ownership remains with KEY2 on PG10. */
+/* Task keys: PG13 starts task 1 and PG9 starts task 2; a second press of
+ * either key stops an active run. PG10 is intentionally not a control key. */
 void LineFollowMission_Init(uint32_t nowMs);
 void LineFollowMission_Update(uint32_t nowMs);
 void LineFollowMission_HandleCommand(char command, uint32_t nowMs);

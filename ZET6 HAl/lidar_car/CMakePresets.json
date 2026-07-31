@@ -126,7 +126,7 @@
                 "GYRO_BAUDRATE_VALUE": "9600",
                 "LORA_UART_BAUDRATE_VALUE": "115200",
                 "LINE_REQUIRE_GYRO_FOR_START_VALUE": "1",
-                "LINE_BASE_SPEED_MM_S_VALUE": "600"
+                "LINE_BASE_SPEED_MM_S_VALUE": "120"
             }
         },
         {
@@ -138,7 +138,7 @@
                 "GYRO_BAUDRATE_VALUE": "9600",
                 "LORA_UART_BAUDRATE_VALUE": "115200",
                 "LINE_REQUIRE_GYRO_FOR_START_VALUE": "1",
-                "LINE_BASE_SPEED_MM_S_VALUE": "600"
+                "LINE_BASE_SPEED_MM_S_VALUE": "120"
             }
         },
         {
@@ -150,7 +150,7 @@
                 "GYRO_BAUDRATE_VALUE": "9600",
                 "LORA_UART_BAUDRATE_VALUE": "115200",
                 "LINE_REQUIRE_GYRO_FOR_START_VALUE": "0",
-                "LINE_BASE_SPEED_MM_S_VALUE": "400"
+                "LINE_BASE_SPEED_MM_S_VALUE": "120"
             }
         },
         {

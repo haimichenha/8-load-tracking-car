@@ -79,21 +79,21 @@ change, then perform direction, encoder, and gray-array regression tests.
 
 The D-task LoRa transport is assigned to UART5 by the 2026-07-30 bidirectional
 fixture test. Do not concurrently attach a Pi/Nano to PC12/PD2. The Pi pose
-bridge is instead assigned to UART4. Its current field frame is the 14-byte
-`FA | sign+x[3] | sign+y[3] | sign+yaw10[3] | AB` packet: X/Y are integer cm,
-yaw is 0.1 degree, signs are `00/01`, and the Pi transmits only fresh accepted
-poses. The STM32 must reject malformed frames and treat age over 250 ms as
-stale. This local bridge packet is not the LoRa V2.2 packet.
+bridge is instead assigned to UART4. The current mission controller accepts
+only a fresh, calibrated native `FIELD_GLOBAL` pose with a nonzero
+`CalibrationId` for wireless task coordination; legacy 14-byte `FA...AB` data
+is display-only. Reject malformed input and treat age over 250 ms as stale.
 
 Current radar-car SSH endpoint, recorded on 2026-07-30: `ubuntu@192.168.0.131`
 using the local `lidar_humble_ed25519` key. It is a DHCP field address: verify
 reachability and host key before every remote operation; do not hard-code it
 into MCU firmware.
 
-For the current `LineFollowJY901Debug` field image, only the direct JY901
-USART2 yaw source participates in heading correction. UART4 radar pose parsing
-is retained as a separately validated back-up interface and must not be mixed
-with JY901 yaw in one controller without a source-selection/fusion test.
+For the current `LineFollowMissionDebug` field image, only the direct JY901
+USART2 yaw source participates in heading correction. UART4 radar pose is
+coordinate/coordination assistance only: it may provide a valid task
+`CalibrationId`, B-progress cross-check and A-return preparation, but never
+feeds lateral control or independently stops the vehicle.
 
 ## 5. Timer Ownership
 
@@ -117,6 +117,11 @@ with JY901 yaw in one controller without a source-selection/fusion test.
    separately.
 4. Change only one of wiring, remap, direction sign, PWM period, or controller
    gain per test round.
-5. Competition line-follow start/stop key is **KEY2 = PG10**, active low with
-   a pull-up. `bsp_key2.*` names PC4 in historical code and must not be reused
-   as evidence for the current physical PG10 start key.
+5. Competition line-follow task keys are **PG13 = task one** and **PG9 = task
+   two**, both active low with pull-ups. A subsequent press of either key
+   during an active run is a safety stop. PG10 is intentionally unused.
+6. **PG12** is the active-low physical maintenance-event key. After a 2 s hold
+   and continuously observed stopped state for 12 s, the MCU broadcasts the
+   three specified `MAINTENANCE_RESET (0x85)` LoRa frames directly to the
+   ground station. It sends no UART4 data to the radar/Pi and must not be used
+   to clear a retained Pi calibration state.

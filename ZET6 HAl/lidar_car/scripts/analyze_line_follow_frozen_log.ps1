@@ -97,6 +97,11 @@ Get-Content -LiteralPath $Path | ForEach-Object {
         } else {
             0
         }
+        RunDistanceMm = if ($field.ContainsKey('run_distance_mm')) {
+            [int]$field['run_distance_mm']
+        } else {
+            0
+        }
         AMarkConfirmCount = if ($field.ContainsKey('a_mark_count')) {
             [int]$field['a_mark_count']
         } else {
@@ -201,6 +206,8 @@ Write-Output "LINE_FOLLOW_LOG=$Path"
 Write-Output ('RECORDS={0}, FIRST_MS={1}, LAST_MS={2}, WINDOW_MS={3}' -f
               $records.Count, $records[0].TimeMs, $records[-1].TimeMs,
               ($records[-1].TimeMs - $records[0].TimeMs))
+Write-Output ('RUN_DISTANCE_MM_FIRST={0}, RUN_DISTANCE_MM_LAST={1}' -f
+              $records[0].RunDistanceMm, $records[-1].RunDistanceMm)
 Write-Output ('MEAN_RECORD_PERIOD_MS={0:N1}, MAX_TRACK_WHEEL_TARGET_STEP_CPS={1}, MAX_TRACK_DIFFERENTIAL_STEP_CPS={2}' -f
               $meanRecordPeriodMs, $maxTrackWheelTargetStepCps,
               $maxTrackDifferentialStepCps)

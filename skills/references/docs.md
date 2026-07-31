@@ -4,11 +4,12 @@
 
 | Path | Use |
 | --- | --- |
-| `F:\keil5\stm\docs\D题_通用通信与接口规范_v2.2.docx` | V2.2 frame layout, coordinate contract, LoRa slots, reliability, and MaixCam session boundaries |
+| `F:\keil5\stm\ZET6 HAl\lidar_car\docs\D题_通用通信与接口规范_v2.3.docx` | Authoritative V2.3 frame layout, coordinate contract, LoRa slots, reliability, MaixCam boundaries, and physical maintenance reset; online Version remains `0x02` |
 | `F:\keil5\stm\ZET6 HAl\lidar_car\docs\D题 回复.txt` | Official clarifications: physical car button, 15 s A-to-B, line-following freedom, communication permission, platform limit |
 | `F:\keil5\stm\docs\D题_Agent修改提示词_v2.2.md` | Role-specific V2.2 implementation prompts; use B.3 for car scope and B.4 for the MaixCam boundary |
 | `F:\keil5\stm\ZET6 HAl\lidar_car\docs\D题_Agent修改提示词_v2.2.md` | Project-local V2.2 car/MaixCam synchronization summary |
 | `F:\keil5\stm\ZET6 HAl\lidar_car\docs\D题小车端实施基线.md` | Current car-side design decisions and unresolved hardware gates |
+| `F:\keil5\stm\ZET6 HAl\lidar_car\docs\line_follow_uart_flash.md` | Verified J-Link SWD and ROM-UART flashing commands |
 
 ## Current Hardware And Test Sources
 
@@ -27,7 +28,7 @@
 ## Update Policy
 
 Update `D题小车端实施基线.md` and `references/rules.md` together when a
-physical pin, selected interface, safety gate, V2.2 mission boundary, or
+physical pin, selected interface, safety gate, V2.3 mission boundary, or
 mission behavior changes.
 Keep the Word communication specification unchanged unless the team formally
 revises the protocol. Do not treat historical test logs as a replacement for

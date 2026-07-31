@@ -1,4 +1,8 @@
-# Radar pose back-up interface — 2026-07-30
+# Radar pose auxiliary interface — 2026-07-30 (historical migration evidence)
+
+> 当前任务一/二联调不使用本页的“雷达替代循迹”结论。JY901 yaw/yaw-rate 与编码器
+> 路径距离是车辆运动主判据；雷达坐标仅用于协同位姿、B/A 交叉检查和地面站显示。
+> 当前按键和阶段流程见 [D题任务一二雷达协同联调.md](D题任务一二雷达协同联调.md)。
 
 ## Recorded link information
 

@@ -1,5 +1,8 @@
 # 循迹固件烧录经验与串口恢复方案
 
+当前任务一/二的运行参数和联调顺序以
+[D题任务一二雷达协同联调.md](D题任务一二雷达协同联调.md) 为准；本文件只说明烧录恢复。
+
 ## 本次结论
 
 `LineFollowMissionDebug` 在本次工作中始终可以正常构建，问题发生在
@@ -14,6 +17,20 @@ SWD 传输链路，而不是源码或镜像：
 
 工程没有关闭 SWD。`GPIO_Remap_SWJ_JTAGDisable` 仅释放 JTAG 专用引脚，
 PA13/PA14 的 SWD 功能仍保留。
+
+## 当前推荐：J-Link SWD 烧录
+
+本次已在 `STM32F103ZE`、`VTref=3.30 V`、SWD `50 kHz` 下完成下载和逐段
+`compare-sections` 校验。车辆断电或架空车轮后，在项目根目录的 `cmd.exe` 中执行：
+
+```bat
+cd /d "F:\keil5\stm\ZET6 HAl\lidar_car"
+powershell -NoProfile -ExecutionPolicy Bypass -File "scripts\jlink_flash.ps1" -Configuration LineFollowMissionDebug -SwdSpeedKhz 50
+```
+
+该命令会重新配置和构建 `LineFollowMissionDebug`，写入 `lidar_car.elf`，逐段比对
+Flash，并在成功后复位、运行目标。输出中的每个段都应显示 `matched`；只有脚本退出码
+为 `0` 才可开始实车测试。
 
 ## 串口备用烧录
 
@@ -46,20 +63,23 @@ PA13/PA14 的 SWD 功能仍保留。
 STM32CubeProgrammer 2.23.0 CLI 写入并校验 HEX 镜像。脚本不会在写入后
 自动复位，因为 `BOOT0=1` 时复位只会再次进入 ROM Bootloader。
 
-## 本轮控制验证项
+## 当前固件烧录后验证项
 
-- PG10 保持电机启动/停止；PG9 保持人工校准。
+- PG13 启动任务一，PG9 启动任务二；运行中再次按 PG13 或 PG9 均急停并发送
+  `MISSION_ABORT(0x84)`。PG12 在静止满 12 s 后低有效长按 2 s 才广播人工校准
+  `MAINTENANCE_RESET(0x85)`；PG10 不参与任何任务或急停。
+- 两个任务离开 A 均约 `120 mm/s`；雷达 B/C/D 坐标和飞行阶段门见当前联调文档。
 - 中心传感器采用精确 X4+X5 判定；误差到差速的映射连续化，并在任务层限制
   每 20 ms 的基速/差速目标变化，避免进入或退出弯道时跳变。
 - 失线后保留最近有效转向方向，最多搜线 12 秒；连续 3 帧居中的 `TRACK`
   或 `WIDE` 才恢复正常循迹。
 - 未确认回到 A 点时，短暂陀螺/编码器异常和起跑离开 A 超时只记录告警、继续
-  循迹；自动停车仅来自确认 A 点、运行满 3 分钟或失线搜线超时。PG10 与 UART
-  `S` 仍可人工停车。
+  循迹；自动停车仅来自确认 A 点、运行满 3 分钟或失线搜线超时。UART `S`
+  仍可人工停车。
 - 运行中不再同步输出完整 `LF,event=sample` 记录，避免 115200 串口忙等阻塞
   控制周期。RAM 冻结记录仍以 100 ms 保存，停车后发送 `F` 导出分析。
-- 紧弯允许内侧轮有限反转。`5200 cps` 差速上限和 `-800 cps` 内侧目标仍是
-  分阶段实车验证参数，不应视为历史验证过的基线。
+- 紧弯允许内侧轮有限反向目标，当前内侧目标下限为 `-800 cps`；急弯优先调差速
+  持续时间，不全局放大 LADRC。
 
 每次实车后导出冻结日志，检查失线保持时长、保持差速、重获计数和反向轮
 目标记录，再决定是否继续提高转弯力度。

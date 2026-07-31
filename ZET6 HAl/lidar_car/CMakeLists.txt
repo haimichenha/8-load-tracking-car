@@ -69,15 +69,16 @@ set(LORA_UART_BAUDRATE_VALUE
     "115200"
     CACHE STRING "UART5 LoRa protocol diagnostic baud rate")
 
-# Line-follow field-test policy. The current production candidate requires a
-# fresh direct JY901 angle frame; UART4 radar pose remains a separate back-up.
+# Line-follow field-test policy. The production candidate requires a fresh
+# direct JY901 angle frame and a calibrated UART4 radar pose before a task
+# can start.
 set(LINE_REQUIRE_GYRO_FOR_START_VALUE
     "1"
     CACHE STRING "1=require fresh direct JY901 before motion, 0=gray-only diagnostic")
 
 set(LINE_BASE_SPEED_MM_S_VALUE
-    "600"
-    CACHE STRING "Nominal line-follow base speed in mm/s")
+    "120"
+    CACHE STRING "Cooperative line-follow start speed in mm/s")
 
 # Sources
 set(sources_SRCS

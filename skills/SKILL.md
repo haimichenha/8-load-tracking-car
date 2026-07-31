@@ -1,6 +1,6 @@
 ---
 name: stm32f103zet6-d-mission-car
-description: "Use when working on the STM32F103ZET6 land-and-air electronic-competition car for D task: gray line tracking, four-wheel TB6612 bring-up, encoders, gyro/radar pose integration, LoRa V2.2 communication, MaixCam coordination boundaries, A-to-B speed coordination, physical start buttons, staged testing, or related documentation. Read before changing car hardware code, mission behavior, pin maps, or test records."
+description: "Use when working on the STM32F103ZET6 land-and-air electronic-competition car for D task: gray line tracking, four-wheel TB6612 bring-up, encoders, gyro/radar pose integration, LoRa V2.3 communication, MaixCam coordination boundaries, A-to-B speed coordination, physical start buttons, staged testing, or related documentation. Read before changing car hardware code, mission behavior, pin maps, or test records."
 ---
 
 # D Task Car Skill
@@ -47,10 +47,11 @@ physical output mapping, thresholds, safety defaults, and documentation together
 4. Choose A-to-B speed from measured path time with margin below the required
    15 s. Other verified sections may be faster, but only after the line,
    encoder, and braking behavior have been tested at that speed.
-5. Treat `F:\keil5\stm\docs\D题_通用通信与接口规范_v2.2.docx` as the communication
-   authority. Do not invent a LoRa frame, free-running transmit schedule, or
-   task acceptance semantic.
-6. Keep the MaixCam V2.2 session on the air side. The car provides
+5. Treat `F:\keil5\stm\ZET6 HAl\lidar_car\docs\D题_通用通信与接口规范_v2.3.docx` as the communication
+   authority. Online frame Version remains `0x02`; V2.3 adds the physical
+   maintenance-reset handshake and supersedes V2.2 where they differ. Do not
+   invent a LoRa frame, free-running transmit schedule, or task acceptance semantic.
+6. Keep the MaixCam V2.3 session on the air side. The car provides
    `TaskType/MissionId` and pose; only the flight controller creates `ModeSeq`
    and controls CAMERA_MODE/ACTION. Do not route camera frames through the car.
 6. Keep bench evidence separate from competition evidence. PWM register values

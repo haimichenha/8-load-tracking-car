@@ -60,5 +60,8 @@ void CarPoseLink_Init(uint32_t baudrate);
 void CarPoseLink_Poll(uint32_t nowMs);
 const CarPoseLinkState_t *CarPoseLink_GetState(void);
 uint8_t CarPoseLink_IsFresh(uint32_t nowMs, uint32_t maxAgeMs);
+/* A flight task may use only native V2.3, calibrated platform pose data.
+ * Legacy FA...AB data remains display-only even while it is fresh. */
+uint8_t CarPoseLink_IsTaskReady(uint32_t nowMs, uint32_t maxAgeMs);
 
 #endif /* __BSP_CAR_POSE_LINK_H */
