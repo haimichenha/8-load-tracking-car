@@ -9,10 +9,11 @@
 #define LINE_OBSERVER_STABLE_SAMPLES            2U
 #define LINE_OBSERVER_MAX_NORMAL_BITS           3U
 #define LINE_OBSERVER_GYRO_STALE_MS           250U
-#define LINE_OBSERVER_MAX_DIFF_CPS           2200
+#define LINE_OBSERVER_MAX_DIFF_CPS           5200
 #define LINE_OBSERVER_MAX_GYRO_DIFF_CPS       300
-#define LINE_OBSERVER_MAX_TOTAL_DIFF_CPS     2200
+#define LINE_OBSERVER_MAX_TOTAL_DIFF_CPS     5200
 #define LINE_OBSERVER_MAX_YAW_REF_TENTHS     1200
+#define LINE_OBSERVER_MAX_HEADING_ERROR_TENTHS 600
 #define LINE_OBSERVER_MAX_YAW_RATE_TENTHS  30000
 
 /* X1 is vehicle-left, X8 is vehicle-right. The map is physically verified. */
@@ -54,13 +55,19 @@ static uint8_t LineObserver_CountBits(uint8_t mask)
     return count;
 }
 
+static uint8_t LineObserver_IsCenterCapture(uint8_t mask)
+{
+    return (((mask & LINE_OBSERVER_CENTER_MASK) != 0U) &&
+            ((mask & (uint8_t)~LINE_OBSERVER_CENTER_MASK) == 0U)) ? 1U : 0U;
+}
+
 static void LineObserver_UpdateLineClass(LineObserver_t *observer)
 {
     int16_t weightedSum = 0;
     uint8_t channel;
     int16_t absError;
-    int16_t diffGain;
-    int16_t yawGain;
+    int32_t grayMagnitude;
+    int32_t yawMagnitude;
 
     observer->activeCount = LineObserver_CountBits(observer->stableMask);
     observer->centerCaptureActive = 0U;
@@ -79,6 +86,17 @@ static void LineObserver_UpdateLineClass(LineObserver_t *observer)
         return;
     }
 
+    observer->lineClass = (observer->activeCount > LINE_OBSERVER_MAX_NORMAL_BITS) ?
+                          LINE_OBSERVER_WIDE : LINE_OBSERVER_TRACK;
+    /* A line seen by either centre sensor, or by both, is centred closely
+     * enough that chasing the one-bit mask change only adds steering noise. */
+    observer->centerCaptureActive =
+        LineObserver_IsCenterCapture(observer->stableMask);
+    if (observer->centerCaptureActive != 0U)
+    {
+        return;
+    }
+
     for (channel = 0U; channel < 8U; ++channel)
     {
         if ((observer->stableMask & (uint8_t)(1U << channel)) != 0U)
@@ -88,36 +106,37 @@ static void LineObserver_UpdateLineClass(LineObserver_t *observer)
     }
     observer->grayErrorX100 = (int16_t)((weightedSum * 100) /
                                          (int16_t)observer->activeCount);
-    observer->lineClass = (observer->activeCount > LINE_OBSERVER_MAX_NORMAL_BITS) ?
-                          LINE_OBSERVER_WIDE : LINE_OBSERVER_TRACK;
-
     absError = LineObserver_Abs(observer->grayErrorX100);
+
+    /* Keep the response continuous while making the outer two sensor bands
+     * decisive enough to pull the inside wheel through zero on a tight bend.
+     * Mission-side target slew still bounds each 20 ms wheel-target change. */
     if (absError <= 100)
     {
-        diffGain = 1;
-        yawGain = 3;
+        grayMagnitude = (int32_t)absError * 2L;
+        yawMagnitude = (int32_t)absError * 3L;
     }
     else if (absError <= 300)
     {
-        diffGain = 3;
-        yawGain = 4;
+        grayMagnitude = 200L + ((int32_t)(absError - 100) * 1000L) / 200L;
+        yawMagnitude = 300L + ((int32_t)(absError - 100) * 900L) / 200L;
     }
     else if (absError <= 500)
     {
-        diffGain = 4;
-        yawGain = 5;
+        grayMagnitude = 1200L + ((int32_t)(absError - 300) * 2400L) / 200L;
+        yawMagnitude = LINE_OBSERVER_MAX_YAW_REF_TENTHS;
     }
     else
     {
-        diffGain = 5;
-        yawGain = 5;
+        grayMagnitude = 3600L + ((int32_t)(absError - 500) * 1600L) / 100L;
+        yawMagnitude = LINE_OBSERVER_MAX_YAW_REF_TENTHS;
     }
 
     observer->grayDifferentialCps = LineObserver_Clamp(
-        -(int32_t)observer->grayErrorX100 * diffGain,
+        (observer->grayErrorX100 < 0) ? grayMagnitude : -grayMagnitude,
         -LINE_OBSERVER_MAX_DIFF_CPS, LINE_OBSERVER_MAX_DIFF_CPS);
     observer->yawRateReferenceTenthsPerSec = LineObserver_Clamp(
-        -(int32_t)observer->grayErrorX100 * yawGain,
+        (observer->grayErrorX100 < 0) ? yawMagnitude : -yawMagnitude,
         -LINE_OBSERVER_MAX_YAW_REF_TENTHS, LINE_OBSERVER_MAX_YAW_REF_TENTHS);
 }
 
@@ -169,12 +188,33 @@ static void LineObserver_UpdateGyro(LineObserver_t *observer, uint32_t nowMs)
         return;
     }
 
+    if (observer->centerCaptureActive != 0U)
+    {
+        /* Re-anchor after every centre capture so a previous curve cannot
+         * keep steering after the gray sensors have recovered the line. */
+        observer->headingReferenceTenthsDeg = observer->yawTenthsDeg;
+        observer->headingErrorTenthsDeg = 0;
+        observer->gyroDifferentialCps = LineObserver_Clamp(
+            -((int32_t)observer->yawRateTenthsPerSec / 4L),
+            -LINE_OBSERVER_MAX_GYRO_DIFF_CPS,
+            LINE_OBSERVER_MAX_GYRO_DIFF_CPS);
+        observer->totalDifferentialCps = observer->gyroDifferentialCps;
+        return;
+    }
+
     headingAdvance = ((int32_t)observer->yawRateReferenceTenthsPerSec * 20L) / 1000L;
     observer->headingReferenceTenthsDeg = LineObserver_WrapTenthsDeg(
         (int32_t)observer->headingReferenceTenthsDeg + headingAdvance);
 
-    observer->headingErrorTenthsDeg = LineObserver_WrapTenthsDeg(
-        (int32_t)observer->headingReferenceTenthsDeg - observer->yawTenthsDeg);
+    /* Stop the virtual heading reference winding around 180 degrees on a
+     * long bend, which would otherwise flip the gyro correction abruptly. */
+    observer->headingErrorTenthsDeg = LineObserver_Clamp(
+        LineObserver_WrapTenthsDeg(
+            (int32_t)observer->headingReferenceTenthsDeg - observer->yawTenthsDeg),
+        -LINE_OBSERVER_MAX_HEADING_ERROR_TENTHS,
+        LINE_OBSERVER_MAX_HEADING_ERROR_TENTHS);
+    observer->headingReferenceTenthsDeg = LineObserver_WrapTenthsDeg(
+        (int32_t)observer->yawTenthsDeg + observer->headingErrorTenthsDeg);
     yawRateError = (int16_t)(observer->yawRateReferenceTenthsPerSec -
                              observer->yawRateTenthsPerSec);
     correction = ((int32_t)yawRateError / 4L) +

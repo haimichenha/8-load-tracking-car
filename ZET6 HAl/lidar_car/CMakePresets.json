@@ -9,7 +9,6 @@
             "toolchainFile": "${sourceDir}/cmake/gnu-tools-for-stm32.cmake",
             "cacheVariables": {
                 "CMAKE_EXPORT_COMPILE_COMMANDS": "ON",
-
                 "CMSIS_Dvendor": "STMicroelectronics:13",
                 "CMSIS_Dname": "STM32F103ZET6",
                 "CMSIS_Dcore": "Cortex-M3",
@@ -178,7 +177,7 @@
             "hidden": true,
             "configurePreset": "default"
         },
-                {
+        {
             "name": "Debug",
             "configurePreset": "Debug"
         },
@@ -241,6 +240,14 @@
         {
             "name": "LoRaProtocol9600Debug",
             "configurePreset": "LoRaProtocol9600Debug"
+        }
+    ],
+    "testPresets": [
+        {
+            "name": "dianscar",
+            "description": "",
+            "displayName": "",
+            "configurePreset": "Debug"
         }
     ]
 }

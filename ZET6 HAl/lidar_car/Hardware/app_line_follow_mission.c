@@ -29,18 +29,21 @@
 
 #define LINE_CONTROL_PERIOD_MS               20U
 #define LINE_LOG_PERIOD_MS                  100U
+#define LINE_LIVE_RECORD_LOG_ENABLE            0U
 #define LINE_BUTTON_DEBOUNCE_MS              50U
 #define LINE_START_GYRO_WAIT_MS            5000U
 #define LINE_LEAVE_A_TIMEOUT_MS            3000U
-#define LINE_LOST_TIMEOUT_MS                650U
-#define LINE_COMPLETE_MARK_MS               200U
+#define LINE_LOST_TIMEOUT_MS              12000U
+/* The all-black marker is already debounced for two 20 ms observer samples.
+ * Do not add another long dwell here or the car can cross A at 600 mm/s. */
+#define LINE_COMPLETE_MARK_MS                20U
 #define LINE_RADIO_HEARTBEAT_PERIOD_MS      500U
 #define LINE_RADIO_POSE_PERIOD_MS            100U
 #define LINE_RADIO_POSE_FRESH_MS             250U
 #define LINE_MAINTENANCE_HOLD_MS            2000U
 #define LINE_MAINTENANCE_STATIONARY_MS     12000U
 #define LINE_MAINTENANCE_BROADCAST_COUNT       3U
-#define LINE_RUN_WATCHDOG_MS              45000U
+#define LINE_RUN_WATCHDOG_MS             180000U
 #define LINE_GYRO_RUN_STALE_MS              250U
 #define LINE_ENCODER_LIVE_AFTER_MS         1000U
 #define LINE_ENCODER_LIVE_CMD_PERCENT        35
@@ -65,22 +68,29 @@
 #define LINE_CURVE_SPEED_MM_S                500L
 #define LINE_HARD_CURVE_SPEED_MM_S           420L
 #define LINE_TIGHT_CURVE_SPEED_MM_S          280L
-#define LINE_LOST_HOLD_SPEED_MM_S            360L
+#define LINE_LOST_HOLD_SPEED_MM_S            180L
 #define LINE_WIDE_SPEED_MM_S                 LINE_BASE_SPEED_MM_S
 #endif
 
 #define LINE_SPEED_B0                       800.0f
 #define LINE_SPEED_WC                         8.0f
 #define LINE_SPEED_WO                        40.0f
+#define LINE_SPEED_OUT_REVERSE_MIN          -35.0f
 #define LINE_SPEED_OUT_MAX                   45.0f
-#define LINE_SPEED_OUT_STEP                   5.0f
-#define LINE_TARGET_MIN_CPS                  500
+#define LINE_SPEED_OUT_STEP                   6.0f
+#define LINE_TARGET_REVERSE_MIN_CPS         -800
 #define LINE_TARGET_MAX_CPS                 4200
-#define LINE_LOST_CORNER_THRESHOLD_CPS       500
-#define LINE_LOST_CORNER_DIFFERENTIAL_CPS   2200
+#define LINE_TARGET_BASE_SLEW_CPS_PER_SAMPLE 300
+#define LINE_TARGET_DIFFERENTIAL_SLEW_CPS_PER_SAMPLE 600
+#define LINE_LOST_DIRECTION_HISTORY_COUNT      4U
+#define LINE_LOST_DIRECTION_ERROR_X100        200
+#define LINE_LOST_DIRECTION_MIN_CPS           500
+#define LINE_LOST_SEARCH_DIFFERENTIAL_CPS    3600
+#define LINE_LOST_REACQUIRE_SAMPLES             3U
+#define LINE_LOST_REACQUIRE_ERROR_X100        300
+#define LINE_A_RAW_FULL_MASK                  0xFFU
+#define LINE_A_RETURN_MIN_STABLE_BITS            7U
 #define LINE_A_RETURN_TURN_PROGRESS_TENTHS   3300L
-#define LINE_A_ARC_RAW_MASK                  0xF8U
-#define LINE_A_ARC_CONFIRM_SAMPLES              3U
 #define LINE_VELOCITY_WINDOW_COUNT             4U
 #define LINE_FROZEN_RECORD_COUNT             256U
 
@@ -116,6 +126,7 @@ typedef struct
 typedef struct
 {
     uint32_t timeMs;
+    int32_t lapYawTravelTenths;
     int16_t errorX100;
     int16_t grayDiffCps;
     int16_t yawRefTenthsPerSec;
@@ -124,6 +135,7 @@ typedef struct
     int16_t headingErrorTenthsDeg;
     int16_t gyroDiffCps;
     int16_t totalDiffCps;
+    int16_t holdDifferentialCps;
     int16_t targetLeftCps;
     int16_t targetRightCps;
     int16_t measuredLeftCps;
@@ -137,6 +149,8 @@ typedef struct
     uint8_t lineClass;
     uint8_t missionState;
     uint8_t gyroFresh;
+    uint8_t lostReacquireCount;
+    uint8_t completeMarkCount;
 } LineFrozenRecord_t;
 
 static LineObserver_t s_observer;
@@ -161,7 +175,8 @@ static uint8_t s_maintenanceButtonPressed;
 static uint8_t s_maintenanceButtonHandled;
 static uint8_t s_normalLineCount;
 static uint8_t s_completeMarkCount;
-static uint8_t s_arcTerminalCandidateCount;
+static uint8_t s_gyroStaleReported;
+static uint8_t s_encoderNotLiveReported;
 static uint8_t s_lapYawTravelValid;
 static int16_t s_lastLapYawTenths;
 static int32_t s_lapYawTravelTenths;
@@ -185,8 +200,14 @@ static uint32_t s_lastButtonPressMs;
 static const char *s_lastReason;
 static int16_t s_holdDifferentialCps;
 static int16_t s_lastTrackingDifferentialCps;
+static int16_t s_turnHistory[LINE_LOST_DIRECTION_HISTORY_COUNT];
+static uint8_t s_turnHistoryWriteIndex;
+static uint8_t s_turnHistoryCount;
+static uint8_t s_lostReacquireCount;
 static int16_t s_targetLeftCps;
 static int16_t s_targetRightCps;
+static int16_t s_smoothedBaseCps;
+static int16_t s_smoothedDifferentialCps;
 static int16_t s_measuredLeftCps;
 static int16_t s_measuredRightCps;
 static int16_t s_commandLeftPercent;
@@ -207,9 +228,46 @@ static int16_t LineMission_Clamp(int32_t value, int16_t lower, int16_t upper)
     return (int16_t)value;
 }
 
+static int16_t LineMission_SlewToward(int16_t current,
+                                      int16_t requested,
+                                      int16_t maximumStep)
+{
+    int32_t delta = (int32_t)requested - current;
+
+    if (delta > maximumStep)
+    {
+        return (int16_t)((int32_t)current + maximumStep);
+    }
+    if (delta < -maximumStep)
+    {
+        return (int16_t)((int32_t)current - maximumStep);
+    }
+    return requested;
+}
+
 static int32_t LineMission_Abs(int32_t value)
 {
     return (value < 0) ? -value : value;
+}
+
+static uint8_t LineMission_CountBits(uint8_t mask)
+{
+    uint8_t count = 0U;
+
+    while (mask != 0U)
+    {
+        count += (uint8_t)(mask & 1U);
+        mask >>= 1U;
+    }
+    return count;
+}
+
+static uint8_t LineMission_IsReturnAMarker(void)
+{
+    return ((s_observer.lineClass == LINE_OBSERVER_A_MARK) ||
+            ((s_observer.rawMask == LINE_A_RAW_FULL_MASK) &&
+             (LineMission_CountBits(s_observer.stableMask) >=
+              LINE_A_RETURN_MIN_STABLE_BITS))) ? 1U : 0U;
 }
 
 static int16_t LineMission_WrapTenthsDeg(int32_t value)
@@ -282,6 +340,82 @@ static const char *LineMission_StateName(void)
         case LINE_MISSION_IDLE:
         default:                      return "IDLE";
     }
+}
+
+static uint8_t LineMission_IsFollowableLineClass(LineObserverClass_t lineClass)
+{
+    return ((lineClass == LINE_OBSERVER_TRACK) ||
+            (lineClass == LINE_OBSERVER_WIDE)) ? 1U : 0U;
+}
+
+static void LineMission_ResetTurnHistory(void)
+{
+    uint8_t index;
+
+    s_turnHistoryWriteIndex = 0U;
+    s_turnHistoryCount = 0U;
+    s_lostReacquireCount = 0U;
+    for (index = 0U; index < LINE_LOST_DIRECTION_HISTORY_COUNT; ++index)
+    {
+        s_turnHistory[index] = 0;
+    }
+}
+
+static void LineMission_RecordTrackingTurn(void)
+{
+    int16_t differential = s_observer.totalDifferentialCps;
+
+    s_lastTrackingDifferentialCps = differential;
+    if ((LineMission_Abs(s_observer.grayErrorX100) <
+         LINE_LOST_DIRECTION_ERROR_X100) ||
+        (LineMission_Abs(differential) < LINE_LOST_DIRECTION_MIN_CPS))
+    {
+        return;
+    }
+
+    s_turnHistory[s_turnHistoryWriteIndex] = differential;
+    ++s_turnHistoryWriteIndex;
+    if (s_turnHistoryWriteIndex >= LINE_LOST_DIRECTION_HISTORY_COUNT)
+    {
+        s_turnHistoryWriteIndex = 0U;
+    }
+    if (s_turnHistoryCount < LINE_LOST_DIRECTION_HISTORY_COUNT)
+    {
+        ++s_turnHistoryCount;
+    }
+}
+
+static int16_t LineMission_SelectLostHoldDifferential(void)
+{
+    int32_t weightedSum = 0L;
+    int32_t weightSum = 0L;
+    int16_t selected;
+    uint8_t offset;
+    uint8_t index;
+    uint8_t weight;
+
+    for (offset = 0U; offset < s_turnHistoryCount; ++offset)
+    {
+        index = (uint8_t)(s_turnHistoryWriteIndex +
+                          LINE_LOST_DIRECTION_HISTORY_COUNT - 1U - offset);
+        if (index >= LINE_LOST_DIRECTION_HISTORY_COUNT)
+        {
+            index = (uint8_t)(index - LINE_LOST_DIRECTION_HISTORY_COUNT);
+        }
+        weight = (uint8_t)(s_turnHistoryCount - offset);
+        weightedSum += (int32_t)s_turnHistory[index] * weight;
+        weightSum += weight;
+    }
+
+    selected = (weightSum != 0L) ?
+               (int16_t)(weightedSum / weightSum) :
+               s_lastTrackingDifferentialCps;
+    if (LineMission_Abs(selected) < LINE_LOST_DIRECTION_MIN_CPS)
+    {
+        return 0;
+    }
+    return (selected < 0) ? -LINE_LOST_SEARCH_DIFFERENTIAL_CPS :
+                            LINE_LOST_SEARCH_DIFFERENTIAL_CPS;
 }
 
 static void LineMission_VelocityWindowReset(LineVelocityWindow_t *window)
@@ -431,6 +565,12 @@ static void LineMission_WriteStatus(uint32_t nowMs)
     DiagUart_WriteString(LineMission_StateName());
     DiagUart_WriteString(",last_reason=");
     DiagUart_WriteString((s_lastReason != 0) ? s_lastReason : "NONE");
+    DiagUart_WriteString(",run_watchdog_ms=");
+    DiagUart_WriteUInt32(LINE_RUN_WATCHDOG_MS);
+    DiagUart_WriteString(",lost_timeout_ms=");
+    DiagUart_WriteUInt32(LINE_LOST_TIMEOUT_MS);
+    DiagUart_WriteString(",live_record_log=");
+    DiagUart_WriteUInt32(LINE_LIVE_RECORD_LOG_ENABLE);
     DiagUart_WriteString(",pg10_raw_pressed=");
     DiagUart_WriteUInt32(rawPressed);
     DiagUart_WriteString(",pg10_stable_pressed=");
@@ -462,6 +602,14 @@ static void LineMission_WriteStatus(uint32_t nowMs)
     DiagUart_WriteInt32(s_observer.yawRateTenthsPerSec);
     DiagUart_WriteString(",heading_err_tenths=");
     DiagUart_WriteInt32(s_observer.headingErrorTenthsDeg);
+    DiagUart_WriteString(",lost_hold_diff_cps=");
+    DiagUart_WriteInt32(s_holdDifferentialCps);
+    DiagUart_WriteString(",lost_reacquire_count=");
+    DiagUart_WriteUInt32(s_lostReacquireCount);
+    DiagUart_WriteString(",gyro_stale_continue=");
+    DiagUart_WriteUInt32(s_gyroStaleReported);
+    DiagUart_WriteString(",encoder_not_live_continue=");
+    DiagUart_WriteUInt32(s_encoderNotLiveReported);
     DiagUart_WriteString(",lap_yaw_travel_tenths=");
     DiagUart_WriteInt32(s_lapYawTravelTenths);
     DiagUart_WriteString(",radio_hb_tx_count=");
@@ -584,6 +732,7 @@ static void LineMission_Record(uint32_t nowMs)
     LineFrozenRecord_t *record = &s_frozenRecord[s_frozenWriteIndex];
 
     record->timeMs = nowMs;
+    record->lapYawTravelTenths = s_lapYawTravelTenths;
     record->errorX100 = s_observer.grayErrorX100;
     record->grayDiffCps = s_observer.grayDifferentialCps;
     record->yawRefTenthsPerSec = s_observer.yawRateReferenceTenthsPerSec;
@@ -592,6 +741,7 @@ static void LineMission_Record(uint32_t nowMs)
     record->headingErrorTenthsDeg = s_observer.headingErrorTenthsDeg;
     record->gyroDiffCps = s_observer.gyroDifferentialCps;
     record->totalDiffCps = s_observer.totalDifferentialCps;
+    record->holdDifferentialCps = s_holdDifferentialCps;
     record->targetLeftCps = s_targetLeftCps;
     record->targetRightCps = s_targetRightCps;
     record->measuredLeftCps = s_measuredLeftCps;
@@ -605,6 +755,8 @@ static void LineMission_Record(uint32_t nowMs)
     record->lineClass = (uint8_t)s_observer.lineClass;
     record->missionState = (uint8_t)s_state;
     record->gyroFresh = s_observer.gyroFresh;
+    record->lostReacquireCount = s_lostReacquireCount;
+    record->completeMarkCount = s_completeMarkCount;
 
     ++s_frozenWriteIndex;
     if (s_frozenWriteIndex >= LINE_FROZEN_RECORD_COUNT)
@@ -617,6 +769,7 @@ static void LineMission_Record(uint32_t nowMs)
     }
 }
 
+#if (LINE_LIVE_RECORD_LOG_ENABLE != 0U)
 static void LineMission_WriteRecord(const char *event, uint32_t nowMs)
 {
     DiagUart_WriteString("LF,event=");
@@ -651,6 +804,10 @@ static void LineMission_WriteRecord(const char *event, uint32_t nowMs)
     DiagUart_WriteInt32(s_observer.gyroDifferentialCps);
     DiagUart_WriteString(",total_diff_cps=");
     DiagUart_WriteInt32(s_observer.totalDifferentialCps);
+    DiagUart_WriteString(",lost_hold_diff_cps=");
+    DiagUart_WriteInt32(s_holdDifferentialCps);
+    DiagUart_WriteString(",lost_reacquire_count=");
+    DiagUart_WriteUInt32(s_lostReacquireCount);
     DiagUart_WriteString(",target_l_cps=");
     DiagUart_WriteInt32(s_targetLeftCps);
     DiagUart_WriteString(",target_r_cps=");
@@ -673,6 +830,7 @@ static void LineMission_WriteRecord(const char *event, uint32_t nowMs)
     DiagUart_WriteUInt32(s_observer.gyroFresh);
     DiagUart_WriteString("\r\n");
 }
+#endif
 
 static void LineMission_DumpFrozenLog(void)
 {
@@ -702,6 +860,8 @@ static void LineMission_DumpFrozenLog(void)
         record = &s_frozenRecord[cursor];
         DiagUart_WriteString("LF,rec,t_ms,");
         DiagUart_WriteUInt32(record->timeMs);
+        DiagUart_WriteString(",lap_yaw_travel,");
+        DiagUart_WriteInt32(record->lapYawTravelTenths);
         DiagUart_WriteString(",state,");
         DiagUart_WriteUInt32(record->missionState);
         DiagUart_WriteString(",class,");
@@ -730,6 +890,12 @@ static void LineMission_DumpFrozenLog(void)
         DiagUart_WriteInt32(record->gyroDiffCps);
         DiagUart_WriteString(",total_diff,");
         DiagUart_WriteInt32(record->totalDiffCps);
+        DiagUart_WriteString(",lost_hold_diff,");
+        DiagUart_WriteInt32(record->holdDifferentialCps);
+        DiagUart_WriteString(",lost_reacquire_count,");
+        DiagUart_WriteUInt32(record->lostReacquireCount);
+        DiagUart_WriteString(",a_mark_count,");
+        DiagUart_WriteUInt32(record->completeMarkCount);
         DiagUart_WriteString(",target_l,");
         DiagUart_WriteInt32(record->targetLeftCps);
         DiagUart_WriteString(",target_r,");
@@ -1101,15 +1267,19 @@ static void LineMission_ResetRunControllers(void)
     s_measuredRightCps = 0;
     s_targetLeftCps = 0;
     s_targetRightCps = 0;
+    s_smoothedBaseCps = 0;
+    s_smoothedDifferentialCps = 0;
     s_commandLeftPercent = 0;
     s_commandRightPercent = 0;
     SpeedLadrc_Reset(&s_leftSpeed, 0.0f);
     SpeedLadrc_Reset(&s_rightSpeed, 0.0f);
     s_holdDifferentialCps = 0;
     s_lastTrackingDifferentialCps = 0;
+    LineMission_ResetTurnHistory();
     s_normalLineCount = 0U;
     s_completeMarkCount = 0U;
-    s_arcTerminalCandidateCount = 0U;
+    s_gyroStaleReported = 0U;
+    s_encoderNotLiveReported = 0U;
     s_lapYawTravelValid = 0U;
     s_lastLapYawTenths = 0;
     s_lapYawTravelTenths = 0L;
@@ -1158,12 +1328,22 @@ static void LineMission_ApplySpeedControl(uint32_t samplePeriodMs)
     baseCps = LineMission_SelectBaseCps();
     differentialCps = (s_state == LINE_MISSION_LOST_HOLD) ?
                       s_holdDifferentialCps : s_observer.totalDifferentialCps;
-    s_targetLeftCps = LineMission_Clamp((int32_t)baseCps -
-                                        ((int32_t)differentialCps / 2L),
-                                        LINE_TARGET_MIN_CPS, LINE_TARGET_MAX_CPS);
-    s_targetRightCps = LineMission_Clamp((int32_t)baseCps +
-                                         ((int32_t)differentialCps / 2L),
-                                         LINE_TARGET_MIN_CPS, LINE_TARGET_MAX_CPS);
+    /* Sensor masks can change the requested curve speed/differential in one
+     * 20 ms sample. Smooth those requests before the wheel LADRC loops so a
+     * line-edge transition does not become a steering jerk. */
+    s_smoothedBaseCps = LineMission_SlewToward(
+        s_smoothedBaseCps, baseCps, LINE_TARGET_BASE_SLEW_CPS_PER_SAMPLE);
+    s_smoothedDifferentialCps = LineMission_SlewToward(
+        s_smoothedDifferentialCps, differentialCps,
+        LINE_TARGET_DIFFERENTIAL_SLEW_CPS_PER_SAMPLE);
+    s_targetLeftCps = LineMission_Clamp((int32_t)s_smoothedBaseCps -
+                                        ((int32_t)s_smoothedDifferentialCps / 2L),
+                                        LINE_TARGET_REVERSE_MIN_CPS,
+                                        LINE_TARGET_MAX_CPS);
+    s_targetRightCps = LineMission_Clamp((int32_t)s_smoothedBaseCps +
+                                         ((int32_t)s_smoothedDifferentialCps / 2L),
+                                         LINE_TARGET_REVERSE_MIN_CPS,
+                                         LINE_TARGET_MAX_CPS);
 
     s_commandLeftPercent = LineMission_RoundPercent(SpeedLadrc_Update(
         &s_leftSpeed, (float)s_targetLeftCps, (float)s_measuredLeftCps,
@@ -1172,20 +1352,10 @@ static void LineMission_ApplySpeedControl(uint32_t samplePeriodMs)
         &s_rightSpeed, (float)s_targetRightCps, (float)s_measuredRightCps,
         samplePeriodSeconds));
 
-    if (s_commandLeftPercent < 0)
-    {
-        s_commandLeftPercent = 0;
-    }
-    if (s_commandRightPercent < 0)
-    {
-        s_commandRightPercent = 0;
-    }
-
     /*
-     * Apply the physical signs measured by FourWheelTb6612Debug. The LADRC
-     * command remains positive for logical vehicle-forward motion; writing it
-     * directly to the front TB6612 was the regression that made the car run
-     * backward. Rear motors are followers, not part of the speed feedback.
+     * Apply the measured physical signs to signed logical wheel commands.
+     * Extreme edge errors may pull only the inside wheel backward; rear motors
+     * remain open-loop followers and are not included in speed feedback.
      */
     s_rearLeftRawPercent = (int16_t)(s_commandLeftPercent *
                                      REAR_LEFT_FORWARD_SIGN);
@@ -1254,8 +1424,15 @@ static void LineMission_UpdateRunState(uint32_t nowMs)
         ((s_observer.gyroFresh == 0U) ||
          (s_observer.gyroAgeMs > LINE_GYRO_RUN_STALE_MS)))
     {
-        LineMission_Stop(LINE_MISSION_FAULT, nowMs, "GYRO_STALE");
-        return;
+        if (s_gyroStaleReported == 0U)
+        {
+            LineMission_WriteEvent("fault_continue", "GYRO_STALE", nowMs);
+            s_gyroStaleReported = 1U;
+        }
+    }
+    else
+    {
+        s_gyroStaleReported = 0U;
     }
     if ((uint32_t)(nowMs - s_runStartMs) >= LINE_RUN_WATCHDOG_MS)
     {
@@ -1266,9 +1443,9 @@ static void LineMission_UpdateRunState(uint32_t nowMs)
     LineMission_UpdateLapTurnProgress();
 
     if ((s_state == LINE_MISSION_TRACK) &&
-        (s_observer.lineClass == LINE_OBSERVER_TRACK))
+        (LineMission_IsFollowableLineClass(s_observer.lineClass) != 0U))
     {
-        s_lastTrackingDifferentialCps = s_observer.totalDifferentialCps;
+        LineMission_RecordTrackingTurn();
     }
 
     if (s_state == LINE_MISSION_LEAVE_A)
@@ -1287,17 +1464,37 @@ static void LineMission_UpdateRunState(uint32_t nowMs)
         }
         if ((uint32_t)(nowMs - s_stateStartMs) >= LINE_LEAVE_A_TIMEOUT_MS)
         {
-            LineMission_Stop(LINE_MISSION_FAULT, nowMs, "A_EXIT_TIMEOUT");
+            /* A noisy/partial A marker must not terminate the mission. Move
+             * into normal tracking; an actual all-white loss still enters the
+             * 12 s search path on the next control sample. */
+            LineMission_EnterState(LINE_MISSION_TRACK, nowMs,
+                                   "A_EXIT_TIMEOUT_CONTINUE");
         }
         return;
     }
 
     if (s_state == LINE_MISSION_LOST_HOLD)
     {
-        if (s_observer.lineClass == LINE_OBSERVER_TRACK)
+        if ((LineMission_IsFollowableLineClass(s_observer.lineClass) != 0U) &&
+            (LineMission_Abs(s_observer.grayErrorX100) <=
+             LINE_LOST_REACQUIRE_ERROR_X100))
         {
-            LineMission_EnterState(LINE_MISSION_TRACK, nowMs, "LINE_REACQUIRED");
-            return;
+            if (s_lostReacquireCount < LINE_LOST_REACQUIRE_SAMPLES)
+            {
+                ++s_lostReacquireCount;
+            }
+            if (s_lostReacquireCount >= LINE_LOST_REACQUIRE_SAMPLES)
+            {
+                s_holdDifferentialCps = 0;
+                s_lostReacquireCount = 0U;
+                LineMission_EnterState(LINE_MISSION_TRACK, nowMs,
+                                       "LINE_REACQUIRED_STABLE");
+                return;
+            }
+        }
+        else
+        {
+            s_lostReacquireCount = 0U;
         }
         if ((uint32_t)(nowMs - s_lostStartMs) >= LINE_LOST_TIMEOUT_MS)
         {
@@ -1308,62 +1505,22 @@ static void LineMission_UpdateRunState(uint32_t nowMs)
 
     if (s_observer.lineClass == LINE_OBSERVER_LOST)
     {
-        /* The observer clears its error on a white mask; retain the last
-         * measured turn rather than blindly driving straight off a corner. */
-        s_holdDifferentialCps = s_lastTrackingDifferentialCps;
-        if (LineMission_Abs(s_holdDifferentialCps) >=
-            LINE_LOST_CORNER_THRESHOLD_CPS)
-        {
-            s_holdDifferentialCps = (s_holdDifferentialCps < 0) ?
-                                      -LINE_LOST_CORNER_DIFFERENTIAL_CPS :
-                                      LINE_LOST_CORNER_DIFFERENTIAL_CPS;
-        }
+        /* Keep the last four meaningful steering samples through all-white
+         * loss so the search turns toward the side where the line escaped. */
+        s_holdDifferentialCps = LineMission_SelectLostHoldDifferential();
+        s_lostReacquireCount = 0U;
         s_lostStartMs = nowMs;
         LineMission_EnterState(LINE_MISSION_LOST_HOLD, nowMs, "LINE_LOST");
         return;
     }
 
-    /*
-     * B->C and D->A are both clockwise semicircles in the official map. A
-     * gray-only "outer right + wide" signature is therefore ambiguous and
-     * stopped the car between B and C. The JY901 yaw is already fresh for this
-     * controller, so enable the A marker only after the measured cumulative
-     * clockwise travel exceeds 330 degrees: upper half-circle plus almost all
-     * of the return half-circle. Then accept X4--X8/all-black for three 20 ms
-     * samples. This keeps the A marker tolerant of its curved entry without
-     * treating the B->C exit as the finish.
-     */
-    if (s_state == LINE_MISSION_TRACK)
-    {
-        if (s_lapYawTravelTenths <= -LINE_A_RETURN_TURN_PROGRESS_TENTHS)
-        {
-            if ((s_observer.rawMask & LINE_A_ARC_RAW_MASK) ==
-                 LINE_A_ARC_RAW_MASK)
-            {
-                if (s_arcTerminalCandidateCount < 255U)
-                {
-                    ++s_arcTerminalCandidateCount;
-                }
-                if (s_arcTerminalCandidateCount >= LINE_A_ARC_CONFIRM_SAMPLES)
-                {
-                    LineMission_Stop(LINE_MISSION_COMPLETE, nowMs,
-                                     "A_RETURN_AFTER_2_ARCS");
-                    return;
-                }
-            }
-            else
-            {
-                s_arcTerminalCandidateCount = 0U;
-            }
-        }
-        else
-        {
-            s_arcTerminalCandidateCount = 0U;
-        }
-    }
-
-    if ((s_lapYawTravelTenths <= -LINE_A_RETURN_TURN_PROGRESS_TENTHS) &&
-        (s_observer.lineClass == LINE_OBSERVER_A_MARK))
+    /* A partial curved-entry mask can also occur elsewhere on the course.
+     * The real A label is narrower than two 20 ms samples at field speed, so
+     * accept its raw full-black frame only after seven stable black sensors
+     * have already formed the approaching A signature. */
+    if ((s_observer.gyroFresh != 0U) &&
+        (s_lapYawTravelTenths <= -LINE_A_RETURN_TURN_PROGRESS_TENTHS) &&
+        (LineMission_IsReturnAMarker() != 0U))
     {
         ++s_completeMarkCount;
         if ((uint32_t)s_completeMarkCount * LINE_CONTROL_PERIOD_MS >=
@@ -1389,9 +1546,11 @@ void LineFollowMission_Init(uint32_t nowMs)
     LineObserver_Init(&s_observer, nowMs);
     LineMission_ButtonInit(nowMs);
     SpeedLadrc_Init(&s_leftSpeed, LINE_SPEED_B0, LINE_SPEED_WC, LINE_SPEED_WO,
-                    0.0f, LINE_SPEED_OUT_MAX, LINE_SPEED_OUT_STEP);
+                    LINE_SPEED_OUT_REVERSE_MIN, LINE_SPEED_OUT_MAX,
+                    LINE_SPEED_OUT_STEP);
     SpeedLadrc_Init(&s_rightSpeed, LINE_SPEED_B0, LINE_SPEED_WC, LINE_SPEED_WO,
-                    0.0f, LINE_SPEED_OUT_MAX, LINE_SPEED_OUT_STEP);
+                    LINE_SPEED_OUT_REVERSE_MIN, LINE_SPEED_OUT_MAX,
+                    LINE_SPEED_OUT_STEP);
     LineMission_VelocityWindowReset(&s_leftVelocityWindow);
     LineMission_VelocityWindowReset(&s_rightVelocityWindow);
     s_state = LINE_MISSION_IDLE;
@@ -1403,7 +1562,8 @@ void LineFollowMission_Init(uint32_t nowMs)
     s_maintenanceStationarySinceMs = nowMs;
     s_normalLineCount = 0U;
     s_completeMarkCount = 0U;
-    s_arcTerminalCandidateCount = 0U;
+    s_gyroStaleReported = 0U;
+    s_encoderNotLiveReported = 0U;
     s_lapYawTravelValid = 0U;
     s_lastLapYawTenths = 0;
     s_lapYawTravelTenths = 0L;
@@ -1484,12 +1644,23 @@ void LineFollowMission_Update(uint32_t nowMs)
     {
         LineMission_ApplySpeedControl(samplePeriodMs);
         if (((uint32_t)(nowMs - s_runStartMs) >= LINE_ENCODER_LIVE_AFTER_MS) &&
-            (((s_commandLeftPercent >= LINE_ENCODER_LIVE_CMD_PERCENT) &&
+            (((LineMission_Abs(s_commandLeftPercent) >=
+               LINE_ENCODER_LIVE_CMD_PERCENT) &&
               (LineMission_Abs(s_measuredLeftCps) < LINE_ENCODER_LIVE_MIN_CPS)) ||
-             ((s_commandRightPercent >= LINE_ENCODER_LIVE_CMD_PERCENT) &&
+             ((LineMission_Abs(s_commandRightPercent) >=
+               LINE_ENCODER_LIVE_CMD_PERCENT) &&
               (LineMission_Abs(s_measuredRightCps) < LINE_ENCODER_LIVE_MIN_CPS))))
         {
-            LineMission_Stop(LINE_MISSION_FAULT, nowMs, "ENCODER_NOT_LIVE");
+            if (s_encoderNotLiveReported == 0U)
+            {
+                LineMission_WriteEvent("fault_continue", "ENCODER_NOT_LIVE",
+                                       nowMs);
+                s_encoderNotLiveReported = 1U;
+            }
+        }
+        else
+        {
+            s_encoderNotLiveReported = 0U;
         }
     }
     else
@@ -1502,7 +1673,9 @@ void LineFollowMission_Update(uint32_t nowMs)
     {
         s_lastLogMs = nowMs;
         LineMission_Record(nowMs);
+#if (LINE_LIVE_RECORD_LOG_ENABLE != 0U)
         LineMission_WriteRecord("sample", nowMs);
+#endif
     }
 }
 

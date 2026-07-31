@@ -1,0 +1,5 @@
+r
+loadfile "F:/keil5/stm/ZET6 HAl/lidar_car/build/LineFollowJY901Debug/lidar_car.hex"
+r
+g
+exit

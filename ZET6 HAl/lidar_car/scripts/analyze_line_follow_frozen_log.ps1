@@ -59,6 +59,16 @@ Get-Content -LiteralPath $Path | ForEach-Object {
     $records += [pscustomobject]@{
         TimeMs = [int]$field['t_ms']; State = [int]$field['state']
         LineClass = [int]$field['class']; ErrorX100 = [int]$field['err_x100']
+        RawMask = if ($field.ContainsKey('raw')) {
+            [int]$field['raw']
+        } else {
+            -1
+        }
+        StableMask = if ($field.ContainsKey('stable')) {
+            [int]$field['stable']
+        } else {
+            -1
+        }
         YawRef = [int]$field['yaw_ref']; Yaw = [int]$field['yaw']
         YawRate = [int]$field['yaw_rate']
         HeadingError = [int]$field['heading_err']; TotalDiff = [int]$field['total_diff']
@@ -68,6 +78,27 @@ Get-Content -LiteralPath $Path | ForEach-Object {
         GyroFresh = [int]$field['gyro_fresh']
         CenterCapture = if ($field.ContainsKey('center_capture')) {
             [int]$field['center_capture']
+        } else {
+            0
+        }
+        LostHoldDifferential = if ($field.ContainsKey('lost_hold_diff')) {
+            [int]$field['lost_hold_diff']
+        } else {
+            0
+        }
+        LostReacquireCount = if ($field.ContainsKey('lost_reacquire_count')) {
+            [int]$field['lost_reacquire_count']
+        } else {
+            0
+        }
+        HasLapYawTravel = $field.ContainsKey('lap_yaw_travel')
+        LapYawTravel = if ($field.ContainsKey('lap_yaw_travel')) {
+            [int]$field['lap_yaw_travel']
+        } else {
+            0
+        }
+        AMarkConfirmCount = if ($field.ContainsKey('a_mark_count')) {
+            [int]$field['a_mark_count']
         } else {
             0
         }
@@ -96,18 +127,115 @@ $maxAbsHeadingError = ($records | ForEach-Object { [math]::Abs($_.HeadingError) 
 $gyroStale = @($records | Where-Object { $_.GyroFresh -eq 0 }).Count
 $centerCaptureRecords = @($records | Where-Object { $_.CenterCapture -ne 0 }).Count
 $edgeRecords = @($records | Where-Object { [math]::Abs($_.ErrorX100) -ge 400 }).Count
+$lostHoldRecords = @($records | Where-Object { $_.State -eq 4 })
+$aMarkRecords = @($records | Where-Object { $_.LineClass -eq 0 })
+$rawFullMarkRecords = @($records | Where-Object { $_.RawMask -eq 255 })
+$hasLapYawTravel = @($records | Where-Object { $_.HasLapYawTravel }).Count -ne 0
+$reverseTargetRecords = @($records | Where-Object {
+    ($_.TargetL -lt 0) -or ($_.TargetR -lt 0)
+}).Count
+$recordPeriodsMs = @()
+$trackWheelTargetStepsCps = @()
+$trackDifferentialStepsCps = @()
+$recordIndex = 1
+for ($recordIndex = 1; $recordIndex -lt $records.Count; ++$recordIndex)
+{
+    $previous = $records[$recordIndex - 1]
+    $current = $records[$recordIndex]
+    $recordPeriodsMs += ($current.TimeMs - $previous.TimeMs)
+    if (($previous.State -eq 3) -and ($current.State -eq 3))
+    {
+        $trackWheelTargetStepsCps += [math]::Max(
+            [math]::Abs($current.TargetL - $previous.TargetL),
+            [math]::Abs($current.TargetR - $previous.TargetR))
+        $trackDifferentialStepsCps += [math]::Abs(
+            ($current.TargetR - $current.TargetL) -
+            ($previous.TargetR - $previous.TargetL))
+    }
+}
 $maxCommand = ($records | ForEach-Object { [math]::Max($_.CmdL, $_.CmdR) } |
                Measure-Object -Maximum).Maximum
+$maxAbsLostHoldDifferential = ($lostHoldRecords | ForEach-Object {
+    [math]::Abs($_.LostHoldDifferential)
+} | Measure-Object -Maximum).Maximum
+$maxLostReacquireCount = ($lostHoldRecords | ForEach-Object {
+    $_.LostReacquireCount
+} | Measure-Object -Maximum).Maximum
+$maxAMarkConfirmCount = ($aMarkRecords | ForEach-Object {
+    $_.AMarkConfirmCount
+} | Measure-Object -Maximum).Maximum
+$lostHoldWindowMs = 0
+if ($lostHoldRecords.Count -ge 2)
+{
+    $lostHoldWindowMs = $lostHoldRecords[-1].TimeMs - $lostHoldRecords[0].TimeMs
+}
+if ($null -eq $maxAbsLostHoldDifferential)
+{
+    $maxAbsLostHoldDifferential = 0
+}
+if ($null -eq $maxLostReacquireCount)
+{
+    $maxLostReacquireCount = 0
+}
+if ($null -eq $maxAMarkConfirmCount)
+{
+    $maxAMarkConfirmCount = 0
+}
+$meanRecordPeriodMs = if ($recordPeriodsMs.Count -ne 0) {
+    ($recordPeriodsMs | Measure-Object -Average).Average
+} else {
+    0
+}
+$maxTrackWheelTargetStepCps = if ($trackWheelTargetStepsCps.Count -ne 0) {
+    ($trackWheelTargetStepsCps | Measure-Object -Maximum).Maximum
+} else {
+    0
+}
+$maxTrackDifferentialStepCps = if ($trackDifferentialStepsCps.Count -ne 0) {
+    ($trackDifferentialStepsCps | Measure-Object -Maximum).Maximum
+} else {
+    0
+}
 
 Write-Output "LINE_FOLLOW_LOG=$Path"
 Write-Output ('RECORDS={0}, FIRST_MS={1}, LAST_MS={2}, WINDOW_MS={3}' -f
               $records.Count, $records[0].TimeMs, $records[-1].TimeMs,
               ($records[-1].TimeMs - $records[0].TimeMs))
+Write-Output ('MEAN_RECORD_PERIOD_MS={0:N1}, MAX_TRACK_WHEEL_TARGET_STEP_CPS={1}, MAX_TRACK_DIFFERENTIAL_STEP_CPS={2}' -f
+              $meanRecordPeriodMs, $maxTrackWheelTargetStepCps,
+              $maxTrackDifferentialStepCps)
 Write-Output ('TERMINAL_REASON={0}' -f $terminalReason)
 Write-Output ('TRACK_RECORDS={0}, GYRO_STALE_RECORDS={1}, MAX_ABS_GRAY_ERR_X100={2}, MAX_ABS_HEADING_ERR_TENTHS={3}, MAX_COMMAND_PCT={4}' -f
               $tracking.Count, $gyroStale, $maxAbsGrayError, $maxAbsHeadingError, $maxCommand)
 Write-Output ('CENTER_CAPTURE_RECORDS={0}, EDGE_RECORDS_ABS_ERR_GE_400={1}, EDGE_RECORD_RATIO={2:P1}' -f
               $centerCaptureRecords, $edgeRecords, ($edgeRecords / [double]$records.Count))
+Write-Output ('LOST_HOLD_RECORDS={0}, LOST_HOLD_WINDOW_MS={1}, MAX_ABS_LOST_HOLD_DIFF_CPS={2}, MAX_LOST_REACQUIRE_COUNT={3}, REVERSE_TARGET_RECORDS={4}' -f
+              $lostHoldRecords.Count,
+              $lostHoldWindowMs,
+              $maxAbsLostHoldDifferential,
+              $maxLostReacquireCount,
+              $reverseTargetRecords)
+if ($hasLapYawTravel)
+{
+    $aMarkLapYawText = if ($aMarkRecords.Count -ne 0) {
+        ($aMarkRecords | ForEach-Object { $_.LapYawTravel }) -join ';'
+    } else {
+        'NONE'
+    }
+    $rawFullLapYawText = if ($rawFullMarkRecords.Count -ne 0) {
+        ($rawFullMarkRecords | ForEach-Object { $_.LapYawTravel }) -join ';'
+    } else {
+        'NONE'
+    }
+    Write-Output ('A_MARK_RECORDS={0}, RAW_FULL_A_RECORDS={1}, MAX_A_MARK_CONFIRM_COUNT={2}, A_MARK_LAP_YAW_TRAVEL={3}, RAW_FULL_A_LAP_YAW_TRAVEL={4}' -f
+                  $aMarkRecords.Count, $rawFullMarkRecords.Count,
+                  $maxAMarkConfirmCount, $aMarkLapYawText, $rawFullLapYawText)
+}
+else
+{
+    Write-Output ('A_MARK_RECORDS={0}, RAW_FULL_A_RECORDS={1}, MAX_A_MARK_CONFIRM_COUNT=NA, A_MARK_LAP_YAW_TRAVEL=NA, RAW_FULL_A_LAP_YAW_TRAVEL=NA' -f
+                  $aMarkRecords.Count, $rawFullMarkRecords.Count)
+}
 Write-Output ('MEAN_TRACK_TARGET_L_CPS={0:N1}, MEAN_TRACK_MEAS_L_CPS={1:N1}, MEAN_TRACK_TARGET_R_CPS={2:N1}, MEAN_TRACK_MEAS_R_CPS={3:N1}' -f
               (Mean $tracking { param($r) $r.TargetL }), (Mean $tracking { param($r) $r.MeasL }),
               (Mean $tracking { param($r) $r.TargetR }), (Mean $tracking { param($r) $r.MeasR }))
