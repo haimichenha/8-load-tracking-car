@@ -1,21 +1,68 @@
-# Wheel direction calibration handoff
+# Electrical Contest Integration Handoff
 
-## Confirmed known-good
+## Active scope
 
-- Replacement L298N driver allows all four motors to move.
-- Firmware test order is LF forward/reverse, RF forward/reverse, LR forward/reverse, RR forward/reverse.
-- Current test timing per wheel: software forward for 2 seconds, stop for 1 second, software reverse for 2 seconds, then stop for 3 seconds before switching wheels.
-- Latest Debug build passed; it has not been flashed by Codex because the user will flash it manually.
+Prepare the STM32 car firmware and its local documentation for the electrical
+contest car-aircraft integration.  The authoritative requirement sources are
+the V2.3 protocol DOCX, `docs/\u4efb\u52a1\u8981\u6c42.png`, and `docs/D\u9898 \u56de\u590d.txt`.
 
-## Direction evidence
+## Known implementation evidence
 
-| Wheel | Software forward | Software reverse | Status |
-| --- | --- | --- | --- |
-| LF | Actual backward observed, but stage ownership is not yet isolated | Not yet distinguished | Partial |
-| RF | Actual backward observed, but stage ownership is not yet isolated | Not yet distinguished | Partial |
-| LR | Actual forward observed, but stage ownership is not yet isolated | Not yet distinguished | Partial |
-| RR | Actual backward | Actual forward | Confirmed; invert direction |
+- PG12 is the maintenance-reset key.  PG13 starts task 1 and PG9 starts task
+  2; a second press of either task key requests the local emergency stop.
+- The car MCU parses V2.3 mission status (`0x82`) and flight telemetry
+  (`0x02`), sends `0x81` task requests with three slot retries, and handles
+  MCU-local calibration (`0x83`) and maintenance reset (`0x85`) without a
+  Pi return channel.
+- Pi/radar input remains raw inside the MCU. Only outgoing LoRa `0x80 CAR_POSE`
+  applies `X_lora=-(X_pi-13 cm)+DeltaX`, `Y_lora=-Y_pi+DeltaY`, and
+  `yaw_lora=yaw_pi`. This mapping is never fed back into line following, JY901,
+  encoder, or raw radar state.
+- Current cooperative target speeds are 130 mm/s for task 1 and 150 mm/s for
+  task 2.
+- Radar coordinates are auxiliary progress/preparation evidence. Gray line,
+  JY901 heading, and encoder distance remain the motion and stop authorities;
+  the car may run a local lap with no radar/Pi input.
+- The confirmed field policy is: PG13/PG9 do not wait for Pi, radar, or a
+  CalibrationId. If fresh raw pose and MCU-local calibration become available
+  while the car is already following the line, the MCU may then establish
+  `0x81` cooperation; otherwise it continues locally. The protocol forbids
+  fabricating a zero or stale CalibrationId solely to start aircraft
+  coordination.
+- A stopped car can replace its local calibration for debugging with a new
+  `0x83` request sequence. The new Delta is complete relative to raw Pi pose,
+  not additive. The current image builds successfully; latest physical flash
+  remains pending because the J-Link probe USB disconnected after a GDB-reset
+  failure. CubeProgrammer successfully identified STM32F103ZE using J-Link
+  `mode=UR reset=HWrst` before the probe disappeared.
+
+## Open scoring risks
+
+- The current firmware audit must enforce a 90-second lap policy and record
+  the task-2 B-point 15-second milestone. Local vehicle motion must remain
+  available without radar/Pi; a scored aircraft session still needs a valid
+  calibrated pose and the corresponding wireless task evidence.
+- Task 2 must remain at cooperative speed through platform landing and its
+  five-second dwell; only the post-platform-takeoff aircraft stage may unlock
+  the fast envelope.
+- Pi raw-pose deployment, aircraft firmware, air-radio forwarding,
+  payload/landing behavior, and graphical ground station are external owners.
+  Their absence is a field-test blocker, not a result that MCU code can claim.
+- The one-way Pi-to-MCU path is a compatibility field-test topology. It does
+  not close the published V2.3 Pi calibration/ACK transaction or prove the
+  physical platform-center requirement; do not record a strict scoring pass
+  without those external evidence gates.
+
+## Historical archive
+
+The earlier L298N wheel-direction work remains in `state.json` and
+`learning.json` as historical evidence.  It is not part of the current
+contest-readiness acceptance decision.
 
 ## Next minimum action
 
-Flash `build/Debug/lidar_car.hex`, then report each wheel as `software forward -> actual direction` and `software reverse -> actual direction` in LF, RF, LR, RR order. Do not change final direction constants until all four rows are complete.
+Reconnect J-Link, flash `LineFollowMissionDebug` using CubeProgrammer J-Link
+`mode=UR reset=HWrst`, then capture repeated `0x83` replacement, direct ground
+ACK, and paired Pi-input/LoRa-output frames proving
+`X_lora=-(X_pi-13 cm)+DeltaX`, `Y_lora=-Y_pi+DeltaY`, and
+`yaw_lora=yaw_pi` before collecting `0x81` and air ACK evidence.

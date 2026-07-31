@@ -2,7 +2,8 @@
 
 > 当前任务一/二联调不使用本页的“雷达替代循迹”结论。JY901 yaw/yaw-rate 与编码器
 > 路径距离是车辆运动主判据；雷达坐标仅用于协同位姿、B/A 交叉检查和地面站显示。
-> 当前按键和阶段流程见 [D题任务一二雷达协同联调.md](D题任务一二雷达协同联调.md)。
+> 当前按键、阶段、计时和得分判据见
+> [D题_V23_联调与计分矩阵.md](D题_V23_联调与计分矩阵.md)。本页是迁移历史，不是现场入口。
 
 ## Recorded link information
 
@@ -15,10 +16,10 @@
   bridge therefore reported `valid=0, reason=odom_stale`. A stale packet must
   never be used for motion.
 
-## STM32 back-up path
+## Historical STM32 migration path
 
 ```text
-Pi radar/SLAM pose (X/Y/yaw) --UART4--> validated 14-byte pose parser
+Pi radar/SLAM pose (X/Y/yaw) --UART4--> legacy 14-byte compatibility parser
 ```
 
 - UART4 frame: `FA | sx xxx | sy yyy | syaw yyy | AB`, 14 bytes.
@@ -28,9 +29,12 @@ Pi radar/SLAM pose (X/Y/yaw) --UART4--> validated 14-byte pose parser
 
 ## Current field controller selection
 
-`LineFollowJY901Debug` does **not** initialize or use this UART4 path for
-steering. It uses only the verified direct JY901 link on remapped USART2
-(`PD5=MCU TX -> JY901 RX`, `PD6=MCU RX <- JY901 TX`, 9600 8N1). Gray X1--X8
-remains the primary line-error source and front encoder LADRC remains the speed
-inner loop. Do not combine radar yaw and JY901 yaw until an explicit
-source-selection/fusion test has acceptance evidence.
+The historical `LineFollowJY901Debug` target does **not** initialize this
+UART4 path for steering. The active `LineFollowMissionDebug` target does
+initialize UART4 for the Pi V2.3 pose and calibration-control link, but it
+uses that data only for cooperation, coordinates, and A/B cross-checks. It
+still uses the verified direct JY901 link on remapped USART2
+(`PD5=MCU TX -> JY901 RX`, `PD6=MCU RX <- JY901 TX`, 9600 8N1) for yaw and
+yaw-rate steering. Gray X1--X8 remains the primary line-error source and front
+encoder LADRC remains the speed inner loop. Do not combine radar yaw and JY901
+yaw until an explicit source-selection/fusion test has acceptance evidence.

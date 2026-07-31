@@ -126,7 +126,11 @@
                 "GYRO_BAUDRATE_VALUE": "9600",
                 "LORA_UART_BAUDRATE_VALUE": "115200",
                 "LINE_REQUIRE_GYRO_FOR_START_VALUE": "1",
-                "LINE_BASE_SPEED_MM_S_VALUE": "120"
+                "LINE_REQUIRE_CALIBRATED_POSE_FOR_TASK_START_VALUE": "0",
+                "LINE_ENABLE_UART_MANUAL_STOP_VALUE": "0",
+                "LINE_TASK1_COOP_SPEED_MM_S_VALUE": "130",
+                "LINE_TASK2_COOP_SPEED_MM_S_VALUE": "150",
+                "LINE_CAR_POSE_CENTER_OFFSET_X_CM_VALUE": "-13"
             }
         },
         {
@@ -138,7 +142,11 @@
                 "GYRO_BAUDRATE_VALUE": "9600",
                 "LORA_UART_BAUDRATE_VALUE": "115200",
                 "LINE_REQUIRE_GYRO_FOR_START_VALUE": "1",
-                "LINE_BASE_SPEED_MM_S_VALUE": "120"
+                "LINE_REQUIRE_CALIBRATED_POSE_FOR_TASK_START_VALUE": "0",
+                "LINE_ENABLE_UART_MANUAL_STOP_VALUE": "1",
+                "LINE_TASK1_COOP_SPEED_MM_S_VALUE": "130",
+                "LINE_TASK2_COOP_SPEED_MM_S_VALUE": "150",
+                "LINE_CAR_POSE_CENTER_OFFSET_X_CM_VALUE": "-13"
             }
         },
         {
@@ -150,7 +158,11 @@
                 "GYRO_BAUDRATE_VALUE": "9600",
                 "LORA_UART_BAUDRATE_VALUE": "115200",
                 "LINE_REQUIRE_GYRO_FOR_START_VALUE": "0",
-                "LINE_BASE_SPEED_MM_S_VALUE": "120"
+                "LINE_REQUIRE_CALIBRATED_POSE_FOR_TASK_START_VALUE": "0",
+                "LINE_ENABLE_UART_MANUAL_STOP_VALUE": "1",
+                "LINE_TASK1_COOP_SPEED_MM_S_VALUE": "130",
+                "LINE_TASK2_COOP_SPEED_MM_S_VALUE": "150",
+                "LINE_CAR_POSE_CENTER_OFFSET_X_CM_VALUE": "-13"
             }
         },
         {

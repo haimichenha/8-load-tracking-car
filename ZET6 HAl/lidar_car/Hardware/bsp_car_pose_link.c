@@ -9,10 +9,19 @@
 #define CAR_POSE_LINK_PAYLOAD_LENGTH        22U
 #define CAR_POSE_LINK_MAX_YAW_TENTHS      1800
 #define CAR_POSE_LINK_INVALID_VELOCITY  0x7FFF
+#define CAR_POSE_LINK_REQUIRED_TASK_FLAGS \
+    (V22_POSE_FLAG_POSITION_VALID | V22_POSE_FLAG_CALIBRATED | \
+     V22_POSE_FLAG_YAW_VALID)
+#define CAR_POSE_LINK_ALLOWED_FLAGS \
+    (V22_POSE_FLAG_POSITION_VALID | V22_POSE_FLAG_CALIBRATED | \
+     V22_POSE_FLAG_VELOCITY_VALID | V22_POSE_FLAG_YAW_VALID | \
+     V22_POSE_FLAG_CAR_RUNNING)
+#define CAR_POSE_LINK_TASK_READY_FRAME_COUNT 3U
 #define CAR_POSE_LINK_LEGACY_HEAD         0xFAU
 #define CAR_POSE_LINK_LEGACY_TAIL         0xABU
 #define CAR_POSE_LINK_LEGACY_SIZE            14U
 #define CAR_POSE_LINK_LEGACY_FIRST_TIME_MS     0U
+#define CAR_POSE_LINK_ACK_QUEUE_COUNT           4U
 
 #define CAR_POSE_LINK_SOURCE_NONE             0U
 #define CAR_POSE_LINK_SOURCE_LEGACY           1U
@@ -25,6 +34,33 @@ static uint8_t s_legacyFrameIndex;
 static uint8_t s_legacyRelayEpochStarted;
 static uint32_t s_legacyRelaySourceTimeMs;
 static uint32_t s_legacyRelayLastReceiveMs;
+static CarPoseLinkAck_t s_ackQueue[CAR_POSE_LINK_ACK_QUEUE_COUNT];
+static uint8_t s_ackQueueHead;
+static uint8_t s_ackQueueTail;
+static uint8_t s_ackQueueCount;
+
+static uint8_t CarPoseLink_NextAckIndex(uint8_t index)
+{
+    ++index;
+    return (index >= CAR_POSE_LINK_ACK_QUEUE_COUNT) ? 0U : index;
+}
+
+static void CarPoseLink_QueueAck(const CarPoseLinkAck_t *ack)
+{
+    if (ack == 0)
+    {
+        return;
+    }
+    if (s_ackQueueCount >= CAR_POSE_LINK_ACK_QUEUE_COUNT)
+    {
+        ++s_state.ackInvalidFrameCount;
+        return;
+    }
+
+    s_ackQueue[s_ackQueueHead] = *ack;
+    s_ackQueueHead = CarPoseLink_NextAckIndex(s_ackQueueHead);
+    ++s_ackQueueCount;
+}
 
 static uint16_t CarPoseLink_ReadU16Be(const uint8_t *data)
 {
@@ -57,6 +93,21 @@ static int32_t CarPoseLink_ReadLegacySigned3(uint8_t sign, const uint8_t *magnit
             ((int32_t)magnitude[1] << 8) |
             (int32_t)magnitude[2];
     return (sign != 0U) ? -value : value;
+}
+
+static uint8_t CarPoseLink_IsTaskPose(uint8_t flags, uint16_t calibrationId)
+{
+    return (((flags & CAR_POSE_LINK_REQUIRED_TASK_FLAGS) ==
+             CAR_POSE_LINK_REQUIRED_TASK_FLAGS) &&
+            (calibrationId != 0U)) ? 1U : 0U;
+}
+
+static void CarPoseLink_RecordInvalidPose(void)
+{
+    ++s_state.invalidFrameCount;
+    /* A task start requires three uninterrupted accepted calibrated samples.
+     * A malformed or reordered pose must not contribute to that evidence. */
+    s_state.calibratedConsecutiveFrameCount = 0U;
 }
 
 static void CarPoseLink_ResetLegacy(uint8_t byte)
@@ -130,6 +181,7 @@ static void CarPoseLink_ConsumeLegacyByte(uint8_t byte, uint32_t nowMs)
     s_state.yawTenthsDeg = (int16_t)yawTenthsDeg;
     s_state.vxCmPerSec = CAR_POSE_LINK_INVALID_VELOCITY;
     s_state.vyCmPerSec = CAR_POSE_LINK_INVALID_VELOCITY;
+    s_state.calibratedConsecutiveFrameCount = 0U;
     /* The legacy packet has no Pi timestamp.  Start a local relay epoch at
      * the first accepted legacy sample, rather than using MCU boot uptime.
      * A radar/Pi start delay must not hide an MCU reboot from the ground
@@ -176,29 +228,42 @@ static void CarPoseLink_RecordParseDrop(V22ParseResult_t result)
 
 static void CarPoseLink_ConsumeAck(const V22Frame_t *frame)
 {
+    CarPoseLinkAck_t ack;
+
     if ((frame->source != V22_ADDR_CAR_PI) ||
         (frame->destination != V22_ADDR_CAR_MCU) ||
-        (frame->length != 4U))
+        (frame->flags != 0U) ||
+        (frame->length != 4U) ||
+        (frame->payload[2] > V22_ACK_RESULT_INTERNAL))
     {
         ++s_state.invalidFrameCount;
         ++s_state.ackInvalidFrameCount;
         return;
     }
 
-    s_state.lastAckRequestType = frame->payload[0];
-    s_state.lastAckRequestSeq = frame->payload[1];
-    s_state.lastAckResult = frame->payload[2];
-    s_state.lastAckDetail = frame->payload[3];
+    ack.requestType = frame->payload[0];
+    ack.requestSeq = frame->payload[1];
+    ack.result = frame->payload[2];
+    ack.detail = frame->payload[3];
+    s_state.lastAckRequestType = ack.requestType;
+    s_state.lastAckRequestSeq = ack.requestSeq;
+    s_state.lastAckResult = ack.result;
+    s_state.lastAckDetail = ack.detail;
+    CarPoseLink_QueueAck(&ack);
     ++s_state.ackFrameCount;
 }
 
 static void CarPoseLink_ConsumeFrame(const V22Frame_t *frame, uint32_t nowMs)
 {
     uint8_t flags;
+    uint8_t taskPose;
+    uint8_t previousTaskPose;
     uint16_t calibrationId;
     int16_t yawTenthsDeg;
     int16_t vxCmPerSec;
     int16_t vyCmPerSec;
+    uint32_t sourceTimeMs;
+    int32_t sourceTimeDelta;
 
     if (frame->type == V22_TYPE_ACK)
     {
@@ -209,10 +274,11 @@ static void CarPoseLink_ConsumeFrame(const V22Frame_t *frame, uint32_t nowMs)
     if ((frame->type != V22_TYPE_CAR_POSE) ||
         (frame->source != V22_ADDR_CAR_PI) ||
         (frame->destination != V22_ADDR_CAR_MCU) ||
+        (frame->flags != 0U) ||
         (frame->length != CAR_POSE_LINK_PAYLOAD_LENGTH) ||
         (frame->payload[0] != V22_COORDINATE_FIELD_GLOBAL))
     {
-        ++s_state.invalidFrameCount;
+        CarPoseLink_RecordInvalidPose();
         return;
     }
 
@@ -221,18 +287,80 @@ static void CarPoseLink_ConsumeFrame(const V22Frame_t *frame, uint32_t nowMs)
     yawTenthsDeg = CarPoseLink_ReadI16Be(&frame->payload[12]);
     vxCmPerSec = CarPoseLink_ReadI16Be(&frame->payload[14]);
     vyCmPerSec = CarPoseLink_ReadI16Be(&frame->payload[16]);
+    sourceTimeMs = CarPoseLink_ReadU32Be(&frame->payload[18]);
 
-    if (((flags & (V22_POSE_FLAG_POSITION_VALID | V22_POSE_FLAG_YAW_VALID)) !=
+    if (((flags & (uint8_t)~CAR_POSE_LINK_ALLOWED_FLAGS) != 0U) ||
+        ((flags & (V22_POSE_FLAG_POSITION_VALID | V22_POSE_FLAG_YAW_VALID)) !=
          (V22_POSE_FLAG_POSITION_VALID | V22_POSE_FLAG_YAW_VALID)) ||
         (((flags & V22_POSE_FLAG_CALIBRATED) != 0U) && (calibrationId == 0U)) ||
+        (((flags & V22_POSE_FLAG_CALIBRATED) == 0U) && (calibrationId != 0U)) ||
         (((flags & V22_POSE_FLAG_VELOCITY_VALID) == 0U) &&
          ((vxCmPerSec != CAR_POSE_LINK_INVALID_VELOCITY) ||
           (vyCmPerSec != CAR_POSE_LINK_INVALID_VELOCITY))) ||
         (yawTenthsDeg > CAR_POSE_LINK_MAX_YAW_TENTHS) ||
         (yawTenthsDeg < -CAR_POSE_LINK_MAX_YAW_TENTHS))
     {
-        ++s_state.invalidFrameCount;
+        CarPoseLink_RecordInvalidPose();
         return;
+    }
+
+    if (((flags & V22_POSE_FLAG_VELOCITY_VALID) != 0U) &&
+        ((vxCmPerSec == CAR_POSE_LINK_INVALID_VELOCITY) ||
+         (vyCmPerSec == CAR_POSE_LINK_INVALID_VELOCITY)))
+    {
+        ++s_state.invalidVelocityCount;
+        CarPoseLink_RecordInvalidPose();
+        return;
+    }
+
+    taskPose = CarPoseLink_IsTaskPose(flags, calibrationId);
+    previousTaskPose = ((s_state.valid != 0U) &&
+                        (s_state.sourceFormat == CAR_POSE_LINK_SOURCE_V22) &&
+                        CarPoseLink_IsTaskPose(s_state.poseFlags,
+                                               s_state.calibrationId)) ? 1U : 0U;
+
+    if ((s_state.valid != 0U) &&
+        (s_state.sourceFormat == CAR_POSE_LINK_SOURCE_V22))
+    {
+        sourceTimeDelta = (int32_t)(sourceTimeMs - s_state.sourceTimeMs);
+        if (sourceTimeDelta <= 0)
+        {
+            /* A Pi reboot invalidates calibration and begins with an
+             * uncalibrated source-time epoch. Accept that explicit reset
+             * indication, but never let a delayed/duplicate calibrated frame
+             * refresh task readiness. */
+            if ((sourceTimeDelta < 0) && (previousTaskPose != 0U) &&
+                (taskPose == 0U))
+            {
+                ++s_state.sourceTimeRollbackCount;
+            }
+            else
+            {
+                ++s_state.outOfOrderFrameCount;
+                CarPoseLink_RecordInvalidPose();
+                return;
+            }
+        }
+    }
+
+    if (taskPose != 0U)
+    {
+        if ((previousTaskPose != 0U) &&
+            (s_state.calibrationId == calibrationId))
+        {
+            if (s_state.calibratedConsecutiveFrameCount < 0xFFU)
+            {
+                ++s_state.calibratedConsecutiveFrameCount;
+            }
+        }
+        else
+        {
+            s_state.calibratedConsecutiveFrameCount = 1U;
+        }
+    }
+    else
+    {
+        s_state.calibratedConsecutiveFrameCount = 0U;
     }
 
     s_state.sequence = frame->sequence;
@@ -245,7 +373,7 @@ static void CarPoseLink_ConsumeFrame(const V22Frame_t *frame, uint32_t nowMs)
     s_state.yawTenthsDeg = yawTenthsDeg;
     s_state.vxCmPerSec = vxCmPerSec;
     s_state.vyCmPerSec = vyCmPerSec;
-    s_state.sourceTimeMs = CarPoseLink_ReadU32Be(&frame->payload[18]);
+    s_state.sourceTimeMs = sourceTimeMs;
     s_state.lastFrameMs = nowMs;
     s_state.valid = 1U;
     ++s_state.validFrameCount;
@@ -263,6 +391,9 @@ void CarPoseLink_Init(uint32_t baudrate)
     s_legacyRelayEpochStarted = 0U;
     s_legacyRelaySourceTimeMs = 0U;
     s_legacyRelayLastReceiveMs = 0U;
+    s_ackQueueHead = 0U;
+    s_ackQueueTail = 0U;
+    s_ackQueueCount = 0U;
     for (index = 0U; index < sizeof(s_state); ++index)
     {
         raw[index] = 0U;
@@ -313,20 +444,38 @@ uint8_t CarPoseLink_IsFresh(uint32_t nowMs, uint32_t maxAgeMs)
     return ((uint32_t)(nowMs - s_state.lastFrameMs) <= maxAgeMs) ? 1U : 0U;
 }
 
+uint8_t CarPoseLink_TakeAck(CarPoseLinkAck_t *ack)
+{
+    if ((ack == 0) || (s_ackQueueCount == 0U))
+    {
+        return 0U;
+    }
+
+    *ack = s_ackQueue[s_ackQueueTail];
+    s_ackQueueTail = CarPoseLink_NextAckIndex(s_ackQueueTail);
+    --s_ackQueueCount;
+    return 1U;
+}
+
+void CarPoseLink_InvalidateCalibration(void)
+{
+    s_state.poseFlags &= (uint8_t)~V22_POSE_FLAG_CALIBRATED;
+    s_state.calibrationId = 0U;
+    s_state.calibratedConsecutiveFrameCount = 0U;
+}
+
 uint8_t CarPoseLink_IsTaskReady(uint32_t nowMs, uint32_t maxAgeMs)
 {
-    const uint8_t requiredFlags = V22_POSE_FLAG_POSITION_VALID |
-                                  V22_POSE_FLAG_YAW_VALID |
-                                  V22_POSE_FLAG_CALIBRATED;
-
     if (CarPoseLink_IsFresh(nowMs, maxAgeMs) == 0U)
     {
         return 0U;
     }
     if ((s_state.sourceFormat != CAR_POSE_LINK_SOURCE_V22) ||
         (s_state.coordinateFrame != V22_COORDINATE_FIELD_GLOBAL) ||
-        ((s_state.poseFlags & requiredFlags) != requiredFlags) ||
-        (s_state.calibrationId == 0U))
+        (CarPoseLink_IsTaskPose(s_state.poseFlags,
+                                s_state.calibrationId) == 0U) ||
+        (s_state.calibratedConsecutiveFrameCount <
+         CAR_POSE_LINK_TASK_READY_FRAME_COUNT))
     {
         return 0U;
     }

@@ -11,8 +11,10 @@ void RobotUart_ServoWriteString(const char *text);
 uint8_t RobotUart_ServoTryReadByte(uint8_t *byte);
 
 /* Competition line-follow ownership: Pi pose bridge at 115200 8N1.
- * PC10 is MCU TX (reserved); PC11 is MCU RX <- Pi /dev/mcu_usb TX. */
+ * PC10 is MCU TX -> Pi /dev/mcu_usb RX; PC11 is MCU RX <- Pi TX. */
 void RobotUart_RadarInit(uint32_t baudrate);
+void RobotUart_RadarWriteByte(uint8_t byte);
+void RobotUart_RadarWriteBuffer(const uint8_t *data, uint16_t length);
 uint8_t RobotUart_RadarTryReadByte(uint8_t *byte);
 uint16_t RobotUart_RadarConsumeErrorFlags(void);
 uint32_t RobotUart_RadarConsumeOverflowCount(void);

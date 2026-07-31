@@ -69,16 +69,36 @@ set(LORA_UART_BAUDRATE_VALUE
     "115200"
     CACHE STRING "UART5 LoRa protocol diagnostic baud rate")
 
-# Line-follow field-test policy. The production candidate requires a fresh
-# direct JY901 angle frame and a calibrated UART4 radar pose before a task
-# can start.
+# Competition start policy. Line following always remains available from
+# gray/JY901/encoder feedback. A strict pose/air-ACK gate is available for
+# evidence collection, but the normal mission image must not depend on radar
+# or Pi availability to release propulsion.
 set(LINE_REQUIRE_GYRO_FOR_START_VALUE
     "1"
     CACHE STRING "1=require fresh direct JY901 before motion, 0=gray-only diagnostic")
 
-set(LINE_BASE_SPEED_MM_S_VALUE
-    "120"
-    CACHE STRING "Cooperative line-follow start speed in mm/s")
+set(LINE_REQUIRE_CALIBRATED_POSE_FOR_TASK_START_VALUE
+    "0"
+    CACHE STRING "1=optional strict pose and air ACK gate, 0=normal local line-follow start with deferred coordination")
+
+set(LINE_ENABLE_UART_MANUAL_STOP_VALUE
+    "0"
+    CACHE STRING "0=disable UART S stop for a competition image, 1=enable diagnostic UART stop")
+
+set(LINE_TASK1_COOP_SPEED_MM_S_VALUE
+    "130"
+    CACHE STRING "Task 1 cooperative straight-line speed in mm/s")
+
+set(LINE_TASK2_COOP_SPEED_MM_S_VALUE
+    "150"
+    CACHE STRING "Task 2 cooperative straight-line speed in mm/s")
+
+# The radar antenna is 13 cm ahead of the vehicle/platform centre. Apply this
+# only while publishing CAR_POSE to LoRa so Pi calibration state and local
+# radar-assist references remain untouched.
+set(LINE_CAR_POSE_CENTER_OFFSET_X_CM_VALUE
+    "-13"
+    CACHE STRING "CAR_POSE LoRa X offset from radar antenna to vehicle center in cm")
 
 # Sources
 set(sources_SRCS
@@ -190,7 +210,14 @@ target_compile_definitions(${CMAKE_PROJECT_NAME} PRIVATE
 	GYRO_BAUDRATE=${GYRO_BAUDRATE_VALUE}
 	LORA_UART_BAUDRATE=${LORA_UART_BAUDRATE_VALUE}
 	LINE_REQUIRE_GYRO_FOR_START=${LINE_REQUIRE_GYRO_FOR_START_VALUE}
-	LINE_BASE_SPEED_MM_S=${LINE_BASE_SPEED_MM_S_VALUE}
+
+	LINE_REQUIRE_CALIBRATED_POSE_FOR_TASK_START=${LINE_REQUIRE_CALIBRATED_POSE_FOR_TASK_START_VALUE}
+
+	LINE_ENABLE_UART_MANUAL_STOP=${LINE_ENABLE_UART_MANUAL_STOP_VALUE}
+
+	LINE_TASK1_COOP_SPEED_MM_S=${LINE_TASK1_COOP_SPEED_MM_S_VALUE}
+	LINE_TASK2_COOP_SPEED_MM_S=${LINE_TASK2_COOP_SPEED_MM_S_VALUE}
+	LINE_CAR_POSE_CENTER_OFFSET_X_CM=${LINE_CAR_POSE_CENTER_OFFSET_X_CM_VALUE}
     $<$<COMPILE_LANGUAGE:C>: ${symbols_c_SYMB}>
     $<$<COMPILE_LANGUAGE:CXX>: ${symbols_cxx_SYMB}>
     $<$<COMPILE_LANGUAGE:ASM>: ${symbols_asm_SYMB}>

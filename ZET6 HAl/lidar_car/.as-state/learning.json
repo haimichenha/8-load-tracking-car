@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "updated_at": "2026-07-12T00:00:00+08:00",
+  "updated_at": "2026-07-31T21:40:52+08:00",
   "cards": [
     {
       "id": "l298n_test_stage",
@@ -15,6 +15,62 @@
       "misconception_to_avoid": "Do not infer both directions for LF, RF, or LR from a single observed movement.",
       "mastery": "partial",
       "next_review": "Next physical test cycle"
+    },
+    {
+      "id": "v23_task_start_readiness",
+      "symbol": "CarPoseLink_IsTaskReady(nowMs, LINE_RADIO_POSE_FRESH_MS)",
+      "type": "start-gate predicate",
+      "unit": "boolean",
+      "update_source": "Pi raw CAR_POSE parser plus MCU-local calibration state",
+      "update_timing": "Immediately before the MCU emits a V2.3 0x81 task request or arms optional radar assistance",
+      "consumers": ["0x81 TASK_REQUEST construction", "optional radar-assist capture"],
+      "failure_symptom": "If false is bypassed in a scoring run, the car may still follow the line but cannot form a valid CalibrationId-bound air-task session.",
+      "confirmed_fact": "A valid raw current pose plus an MCU-local CalibrationId is required only to form the V2.3 task request; PG13/PG9 local line following does not call this predicate as a propulsion gate.",
+      "misconception_to_avoid": "Pi CALIBRATED flags or a legacy FA...AB stream do not create the MCU-local calibrated session, and their absence must not disable local line following.",
+      "mastery": "active_review",
+      "next_review": "Before the first end-to-end Pi and air-radio field test"
+    },
+    {
+      "id": "task2_speed_unlock_stage",
+      "symbol": "V22_MISSION_STAGE_PLATFORM_TAKEOFF",
+      "type": "mission-stage gate",
+      "unit": "V2.3 stage code 10",
+      "update_source": "0x82 MISSION_STATUS and 0x02 FLIGHT_TELEMETRY",
+      "update_timing": "On each accepted flight state frame while task 2 is active",
+      "consumers": ["LineMission_TryUnlockCoordinationSpeed"],
+      "failure_symptom": "Unlocking at INTERCEPT can accelerate the car while the aircraft is still aligning, descending, or dwelling on the platform.",
+      "confirmed_fact": "Task 2 may unlock the fast vehicle envelope only after the aircraft has left the platform.",
+      "misconception_to_avoid": "INTERCEPT is not evidence of a completed platform landing and relaunch.",
+      "mastery": "active_review",
+      "next_review": "During task-2 stage-transition telemetry validation"
+    },
+    {
+      "id": "line_no_progress_watchdog",
+      "symbol": "LINE_NO_PROGRESS_WATCHDOG_MS / s_lastEncoderProgressMs",
+      "type": "safety-progress watchdog",
+      "unit": "milliseconds",
+      "update_source": "LineMission_AccumulateRunDistance raw front-encoder counts",
+      "update_timing": "Each 20 ms active control sample with any encoder count increment",
+      "consumers": ["LineMission_UpdateRunState", "progress_timeout event", "LineMission_Stop"],
+      "failure_symptom": "If no progress is observed for 20 seconds after propulsion is armed, the vehicle performs a safety stop even though the 90-second lap window has not elapsed.",
+      "confirmed_fact": "The 20-second guard detects a jam or failed propulsion; it is not a normal-lap time limit.",
+      "misconception_to_avoid": "Do not replace the 90-second scoring watchdog with 20 seconds, or a normal 6 m low-speed lap will be cut off.",
+      "mastery": "active_review",
+      "next_review": "First controlled stall and normal-lap test"
+    },
+    {
+      "id": "car_pose_tx_coordinate_transform",
+      "symbol": "LineMission_SendCarPose LoRa output transform",
+      "type": "coordinate transform",
+      "unit": "centimeters",
+      "update_source": "LineMission_CarPoseTransmitXCm before outgoing LoRa 0x80 encoding",
+      "update_timing": "Every transmitted CAR_POSE frame",
+      "consumers": ["aircraft following input", "ground-station car position"],
+      "failure_symptom": "If the X center offset, either mirror sign, or Delta order is wrong, the aircraft and ground station receive a position in the wrong place or quadrant.",
+      "confirmed_fact": "The current MCU output publishes X_lora = -(X_pi - 13 cm) + DeltaX, Y_lora = -Y_pi + DeltaY, and yaw_lora = yaw_pi while retaining raw Pi/radar coordinates for local assistance.",
+      "misconception_to_avoid": "Do not apply this output-only transform to Pi input, local line following, JY901, or encoder logic, and do not apply it a second time upstream.",
+      "mastery": "active_review",
+      "next_review": "First Pi-to-LoRa coordinate capture"
     }
   ]
 }

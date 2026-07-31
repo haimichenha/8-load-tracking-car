@@ -1,52 +1,55 @@
 {
   "version": 1,
-  "updated_at": "2026-07-12T00:00:00+08:00",
+  "updated_at": "2026-07-31T21:40:52+08:00",
   "scope": "F:/keil5/stm/ZET6 HAl/lidar_car",
-  "current_task": "Calibrate physical wheel direction against the staged L298N PWM test",
-  "known_good": {
-    "replacement_driver_installed": true,
-    "all_four_motors_can_move": true,
-    "test_sequence": [
-      "LF_FORWARD",
-      "LF_REVERSE",
-      "RF_FORWARD",
-      "RF_REVERSE",
-      "LR_FORWARD",
-      "LR_REVERSE",
-      "RR_FORWARD",
-      "RR_REVERSE"
-    ],
-    "test_timing": {
-      "forward_ms": 2000,
-      "same_wheel_direction_pause_ms": 1000,
-      "reverse_ms": 2000,
-      "wheel_switch_pause_ms": 3000
-    },
-    "debug_build_passed": true,
-    "release_build_passed": true,
-    "release_rebuilt_at": "2026-07-12T14:56:22+08:00",
-    "flash_performed_for_latest_build": false
-  },
-  "direction_evidence": {
-    "LF": {
-      "observed": "backward",
-      "mapping_status": "partial"
-    },
-    "RF": {
-      "observed": "backward",
-      "mapping_status": "partial"
-    },
-    "LR": {
-      "observed": "forward",
-      "mapping_status": "partial"
-    },
-    "RR": {
-      "software_forward_actual": "backward",
-      "software_reverse_actual": "forward",
-      "mapping_status": "confirmed",
-      "requires_direction_inversion": true
+  "current_task": "Electrical contest: V2.3 car-aircraft integration and scoring readiness",
+  "task_status": "active",
+  "archive_note": "The July L298N wheel-direction task is retained below as historical evidence and is not a current decision source.",
+  "archived_tasks": [
+    {
+      "id": "2026-07-12-l298n-wheel-direction",
+      "summary": "Calibrate physical wheel direction against the staged L298N PWM test.",
+      "known_good": "Replacement L298N moved all four wheels; RR software direction was confirmed reversed; LF/RF/LR direction rows remained partial.",
+      "status": "archived_incomplete"
     }
+  ],
+  "known_good": {
+    "firmware_scope": "STM32 car MCU only",
+    "protocol_implementation": "V2.3 parser and car-side 0x80/0x81/0x82/0x83/0x84/0x85 handling are present in the mission firmware.",
+    "button_mapping": "PG12 maintenance reset, PG13 task 1 start/second-press emergency stop, PG9 task 2 start/second-press emergency stop.",
+    "local_motion_authority": "Gray line, direct JY901 yaw, and encoder distance start and run the car without radar or Pi.",
+    "radar_pi_fallback_policy": "PG13/PG9 local motion never waits for radar, Pi, or CalibrationId. A fresh raw Pi pose plus valid MCU-local calibration can establish 0x81 coordination later; a missing pose may not be replaced with a fabricated CalibrationId.",
+    "car_pose_transmit_geometry": "The raw Pi/radar pose remains internal. Only outgoing LoRa CAR_POSE uses X_lora = -(X_pi - 13 cm) + DeltaX, Y_lora = -Y_pi + DeltaY, and yaw_lora = yaw_pi; Pi must not apply the center offset, mirror, or Delta.",
+    "watchdog_policy": "A moving lap retains the 90 s scoring watchdog. A separate 20 s encoder-no-progress watchdog stops a jammed or non-propelling vehicle.",
+    "configured_speeds_mm_s": {
+      "task_1": 130,
+      "task_2": 150
+    },
+    "calibration_path": "Ground 0x83 is committed to MCU RAM and directly ACKed in the next car slot. A stopped-car request with a new sequence may replace the previous complete raw-pose Delta; duplicate Src+Type+Seq requests are ACK-deduplicated for 5 seconds. PG12 locally clears calibration and emits three 0x85 frames.",
+    "strict_v23_compliance_status": "The one-way Pi-to-MCU local-calibration path is a compatibility field-test path. It does not prove the DOCX Pi 0x83/0x85 ACK transaction or platform-center scoring geometry, so it must not be marked as a strict scoring pass.",
+    "build_status": "LineFollowMissionDebug builds successfully with MCU-local calibration and repeated-calibration diagnostics. The latest image still requires a successful physical flash; J-Link GDB reset failed, while CubeProgrammer J-Link mode=UR reset=HWrst identified STM32F103ZE (0x414, 512 KB)."
   },
-  "next_action": "User manually flashes the latest Debug HEX, then reports forward and reverse results for LF, RF, LR, and RR in order.",
-  "checkpoint_decision": "AS state recorded now; defer Git checkpoint until the full four-wheel direction table is confirmed because this target directory is currently untracked in the parent repository."
+  "requirements_alignment": {
+    "authoritative_sources": [
+      "docs/D\u9898_\u901a\u7528\u901a\u4fe1\u4e0e\u63a5\u53e3\u89c4\u8303_v2.3.docx",
+      "docs/\u4efb\u52a1\u8981\u6c42.png",
+      "docs/D\u9898 \u56de\u590d.txt"
+    ],
+    "scoring_gates_under_audit": [
+      "physical-key local start independent of radar/Pi availability",
+      "fresh raw Pi CAR_POSE plus MCU-local calibration before emitting a scored 0x81 air-task session",
+      "task 2 B milestone within 15 seconds of actual motion",
+      "one lap complete within 90 seconds without task-stage manual intervention",
+      "V2.3 0x83/0x85 and 0x81/0x82/0x02 end-to-end interoperability",
+      "ground-station and aircraft functions owned outside this repository"
+    ]
+  },
+  "external_blockers": [
+    "Pi sends raw pose one-way only; its deployment and live pose freshness remain external hardware evidence, while calibration ownership is MCU-local.",
+    "The published V2.3 Pi calibration/ACK transaction and physical platform-center proof are not closed by the one-way compatibility path.",
+    "Flight-control STM32, air ESP32/LoRa forwarding, payload handling, and ground-station UI source are not in this repository.",
+    "No field evidence yet proves 10 Hz CAR_POSE, 2 Hz FLIGHT_TELEMETRY, task ACK/retry, or the scored physical flight stages."
+  ],
+  "next_action": "Reconnect the J-Link USB probe, flash the current LineFollowMissionDebug image using CubeProgrammer J-Link mode=UR reset=HWrst, then run a stopped repeated 0x83 test with a new request sequence and capture calibration_replaced_mcu, ground ACK, three CAR_POSE frames, 0x81, and air ACK evidence.",
+  "checkpoint_decision": "User requested a Git checkpoint after the repeated-calibration implementation, successful build, and documented car-air ACK joint test."
 }

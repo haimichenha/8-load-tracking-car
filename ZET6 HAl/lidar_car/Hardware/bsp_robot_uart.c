@@ -189,6 +189,16 @@ void RobotUart_RadarInit(uint32_t baudrate)
     USART_ITConfig(UART4, USART_IT_RXNE, ENABLE);
 }
 
+void RobotUart_RadarWriteByte(uint8_t byte)
+{
+    RobotUart_WriteByte(UART4, byte);
+}
+
+void RobotUart_RadarWriteBuffer(const uint8_t *data, uint16_t length)
+{
+    RobotUart_WriteBuffer(UART4, data, length);
+}
+
 uint8_t RobotUart_RadarTryReadByte(uint8_t *byte)
 {
     if (byte == 0)

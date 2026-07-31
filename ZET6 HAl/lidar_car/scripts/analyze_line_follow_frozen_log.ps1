@@ -14,6 +14,7 @@ if (-not (Test-Path -LiteralPath $Path))
 
 $records = @()
 $events = @{}
+$timingEvents = @()
 $terminalReason = 'UNKNOWN'
 
 Get-Content -LiteralPath $Path | ForEach-Object {
@@ -27,8 +28,40 @@ Get-Content -LiteralPath $Path | ForEach-Object {
     if (($parts[1] -like 'event=*') -and ($parts.Length -ge 2))
     {
         $name = $parts[1].Substring(6)
+        $eventField = @{}
+        for ($index = 2; $index -lt $parts.Length; ++$index)
+        {
+            $separator = $parts[$index].IndexOf('=')
+            if ($separator -gt 0)
+            {
+                $eventField[$parts[$index].Substring(0, $separator)] =
+                    $parts[$index].Substring($separator + 1)
+            }
+        }
         if ($events.ContainsKey($name)) { $events[$name] += 1 }
         else { $events[$name] = 1 }
+        if ($eventField.ContainsKey('elapsed_ms'))
+        {
+            $timingEvents += [pscustomobject]@{
+                Name = $name
+                Reason = if ($eventField.ContainsKey('reason')) {
+                    $eventField['reason']
+                } else {
+                    'UNKNOWN'
+                }
+                TimeMs = if ($eventField.ContainsKey('t_ms')) {
+                    [uint32]$eventField['t_ms']
+                } else {
+                    0
+                }
+                ElapsedMs = [uint32]$eventField['elapsed_ms']
+                TimeOrigin = if ($eventField.ContainsKey('time_origin')) {
+                    $eventField['time_origin']
+                } else {
+                    'UNKNOWN'
+                }
+            }
+        }
         if ($name -eq 'dump_begin')
         {
             foreach ($part in $parts)
@@ -202,6 +235,50 @@ $maxTrackDifferentialStepCps = if ($trackDifferentialStepsCps.Count -ne 0) {
     0
 }
 
+function Format-TimingEvents([object[]]$items)
+{
+    if ($items.Count -eq 0)
+    {
+        return 'NA'
+    }
+    return (($items | ForEach-Object {
+        '{0}@{1}ms(origin={2},reason={3})' -f $_.Name, $_.ElapsedMs,
+        $_.TimeOrigin, $_.Reason
+    }) -join ';')
+}
+
+$motionTiming = @($timingEvents | Where-Object { $_.Name -eq 'motion_start' })
+$taskTwoBTiming = @($timingEvents | Where-Object {
+    ($_.Name -eq 'task2_b_within_15s') -or
+    ($_.Name -eq 'task2_b_late') -or
+    ($_.Name -eq 'task2_b_deadline_missed')
+})
+$lapTiming = @($timingEvents | Where-Object {
+    ($_.Name -eq 'lap_complete') -or ($_.Name -eq 'lap_timeout')
+})
+$taskTwoBScore = if (($taskTwoBTiming | Where-Object {
+    $_.Name -eq 'task2_b_within_15s'
+}).Count -ne 0) {
+    'PASS'
+} elseif (($taskTwoBTiming | Where-Object {
+    ($_.Name -eq 'task2_b_late') -or ($_.Name -eq 'task2_b_deadline_missed')
+}).Count -ne 0) {
+    'FAIL'
+} else {
+    'NA'
+}
+$lapScore = if (($lapTiming | Where-Object { $_.Name -eq 'lap_timeout' }).Count -ne 0) {
+    'FAIL'
+} elseif (($lapTiming | Where-Object {
+    ($_.Name -eq 'lap_complete') -and ($_.ElapsedMs -le 90000)
+}).Count -ne 0) {
+    'PASS'
+} elseif (($lapTiming | Where-Object { $_.Name -eq 'lap_complete' }).Count -ne 0) {
+    'FAIL'
+} else {
+    'NA'
+}
+
 Write-Output "LINE_FOLLOW_LOG=$Path"
 Write-Output ('RECORDS={0}, FIRST_MS={1}, LAST_MS={2}, WINDOW_MS={3}' -f
               $records.Count, $records[0].TimeMs, $records[-1].TimeMs,
@@ -212,6 +289,11 @@ Write-Output ('MEAN_RECORD_PERIOD_MS={0:N1}, MAX_TRACK_WHEEL_TARGET_STEP_CPS={1}
               $meanRecordPeriodMs, $maxTrackWheelTargetStepCps,
               $maxTrackDifferentialStepCps)
 Write-Output ('TERMINAL_REASON={0}' -f $terminalReason)
+Write-Output ('SCORING_MOTION_START={0}' -f (Format-TimingEvents $motionTiming))
+Write-Output ('SCORING_TASK2_B_15S={0}, EVENTS={1}' -f
+              $taskTwoBScore, (Format-TimingEvents $taskTwoBTiming))
+Write-Output ('SCORING_LAP_90S={0}, EVENTS={1}' -f
+              $lapScore, (Format-TimingEvents $lapTiming))
 Write-Output ('TRACK_RECORDS={0}, GYRO_STALE_RECORDS={1}, MAX_ABS_GRAY_ERR_X100={2}, MAX_ABS_HEADING_ERR_TENTHS={3}, MAX_COMMAND_PCT={4}' -f
               $tracking.Count, $gyroStale, $maxAbsGrayError, $maxAbsHeadingError, $maxCommand)
 Write-Output ('CENTER_CAPTURE_RECORDS={0}, EDGE_RECORDS_ABS_ERR_GE_400={1}, EDGE_RECORD_RATIO={2:P1}' -f
