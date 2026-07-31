@@ -3,8 +3,13 @@
 #include "misc.h"
 
 #define ROBOT_UART_RADAR_RX_RING_SIZE 256U
+#define ROBOT_UART_NANO_RX_RING_SIZE  256U
 
-static uint16_t s_nanoErrorFlags;
+static volatile uint16_t s_nanoErrorFlags;
+static volatile uint8_t s_nanoRxRing[ROBOT_UART_NANO_RX_RING_SIZE];
+static volatile uint16_t s_nanoRxHead;
+static volatile uint16_t s_nanoRxTail;
+static volatile uint32_t s_nanoRxOverflowCount;
 static volatile uint16_t s_radarErrorFlags;
 static volatile uint8_t s_radarRxRing[ROBOT_UART_RADAR_RX_RING_SIZE];
 static volatile uint16_t s_radarRxHead;
@@ -15,6 +20,47 @@ static uint16_t RobotUart_RadarRingNext(uint16_t index)
 {
     ++index;
     return (index >= ROBOT_UART_RADAR_RX_RING_SIZE) ? 0U : index;
+}
+
+static uint16_t RobotUart_NanoRingNext(uint16_t index)
+{
+    ++index;
+    return (index >= ROBOT_UART_NANO_RX_RING_SIZE) ? 0U : index;
+}
+
+static void RobotUart_NanoRecordErrors(uint16_t status)
+{
+    if ((status & USART_FLAG_PE) != 0U)
+    {
+        s_nanoErrorFlags |= ROBOT_UART_ERROR_PARITY;
+    }
+    if ((status & USART_FLAG_FE) != 0U)
+    {
+        s_nanoErrorFlags |= ROBOT_UART_ERROR_FRAMING;
+    }
+    if ((status & USART_FLAG_NE) != 0U)
+    {
+        s_nanoErrorFlags |= ROBOT_UART_ERROR_NOISE;
+    }
+    if ((status & USART_FLAG_ORE) != 0U)
+    {
+        s_nanoErrorFlags |= ROBOT_UART_ERROR_OVERRUN;
+    }
+}
+
+static void RobotUart_NanoQueueByte(uint8_t byte)
+{
+    uint16_t next = RobotUart_NanoRingNext(s_nanoRxHead);
+
+    if (next == s_nanoRxTail)
+    {
+        ++s_nanoRxOverflowCount;
+        s_nanoErrorFlags |= ROBOT_UART_ERROR_RING_OVERFLOW;
+        return;
+    }
+
+    s_nanoRxRing[s_nanoRxHead] = byte;
+    s_nanoRxHead = next;
 }
 
 static void RobotUart_RadarRecordErrors(uint16_t status)
@@ -287,6 +333,7 @@ uint8_t RobotUart_BluetoothTryReadByte(uint8_t *byte)
 void RobotUart_NanoInit(uint32_t baudrate)
 {
     GPIO_InitTypeDef gpio;
+    NVIC_InitTypeDef nvic;
 
     RCC_APB1PeriphClockCmd(RCC_APB1Periph_UART5, ENABLE);
     RCC_APB2PeriphClockCmd(RCC_APB2Periph_GPIOC |
@@ -304,7 +351,23 @@ void RobotUart_NanoInit(uint32_t baudrate)
     GPIO_Init(GPIOD, &gpio);
 
     RobotUart_InitPeripheral(UART5, baudrate);
+    USART_ITConfig(UART5, USART_IT_RXNE, DISABLE);
     s_nanoErrorFlags = 0U;
+    s_nanoRxHead = 0U;
+    s_nanoRxTail = 0U;
+    s_nanoRxOverflowCount = 0U;
+    (void)UART5->SR;
+    (void)UART5->DR;
+
+    /* Air ACK frames may arrive while foreground code is sending a verbose
+     * diagnostic line. Buffer UART5 in RXNE IRQ so that output cannot cover
+     * the 30-55 ms air response window. */
+    nvic.NVIC_IRQChannel = UART5_IRQn;
+    nvic.NVIC_IRQChannelPreemptionPriority = 1U;
+    nvic.NVIC_IRQChannelSubPriority = 1U;
+    nvic.NVIC_IRQChannelCmd = ENABLE;
+    NVIC_Init(&nvic);
+    USART_ITConfig(UART5, USART_IT_RXNE, ENABLE);
 }
 
 void RobotUart_NanoWriteByte(uint8_t byte)
@@ -324,47 +387,35 @@ void RobotUart_NanoWriteString(const char *text)
 
 uint8_t RobotUart_NanoTryReadByte(uint8_t *byte)
 {
-    uint16_t status;
-    uint16_t errors;
-
     if (byte == 0)
     {
         return 0U;
     }
 
-    status = UART5->SR;
-    errors = (uint16_t)(status & (USART_FLAG_PE |
-                                  USART_FLAG_FE |
-                                  USART_FLAG_NE |
-                                  USART_FLAG_ORE));
-    if ((errors & USART_FLAG_PE) != 0U)
+    if (s_nanoRxTail == s_nanoRxHead)
     {
-        s_nanoErrorFlags |= ROBOT_UART_ERROR_PARITY;
-    }
-    if ((errors & USART_FLAG_FE) != 0U)
-    {
-        s_nanoErrorFlags |= ROBOT_UART_ERROR_FRAMING;
-    }
-    if ((errors & USART_FLAG_NE) != 0U)
-    {
-        s_nanoErrorFlags |= ROBOT_UART_ERROR_NOISE;
-    }
-    if ((errors & USART_FLAG_ORE) != 0U)
-    {
-        s_nanoErrorFlags |= ROBOT_UART_ERROR_OVERRUN;
-    }
-
-    if ((status & USART_FLAG_RXNE) == 0U)
-    {
-        if (errors != 0U)
-        {
-            (void)UART5->DR;
-        }
         return 0U;
     }
 
-    *byte = (uint8_t)UART5->DR;
+    *byte = s_nanoRxRing[s_nanoRxTail];
+    s_nanoRxTail = RobotUart_NanoRingNext(s_nanoRxTail);
     return 1U;
+}
+
+void UART5_IRQHandler(void)
+{
+    uint16_t status = UART5->SR;
+
+    RobotUart_NanoRecordErrors(status);
+    if ((status & USART_FLAG_RXNE) != 0U)
+    {
+        RobotUart_NanoQueueByte((uint8_t)UART5->DR);
+    }
+    else if ((status & (USART_FLAG_PE | USART_FLAG_FE |
+                        USART_FLAG_NE | USART_FLAG_ORE)) != 0U)
+    {
+        (void)UART5->DR;
+    }
 }
 
 uint16_t RobotUart_NanoConsumeErrorFlags(void)

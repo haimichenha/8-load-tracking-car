@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "updated_at": "2026-07-31T21:40:52+08:00",
+  "updated_at": "2026-08-01T00:40:32+08:00",
   "scope": "F:/keil5/stm/ZET6 HAl/lidar_car",
   "current_task": "Electrical contest: V2.3 car-aircraft integration and scoring readiness",
   "task_status": "active",
@@ -15,7 +15,7 @@
   ],
   "known_good": {
     "firmware_scope": "STM32 car MCU only",
-    "protocol_implementation": "V2.3 parser and car-side 0x80/0x81/0x82/0x83/0x84/0x85 handling are present in the mission firmware.",
+    "protocol_implementation": "V2.3 parser and car-side 0x80/0x81/0x82/0x83/0x84/0x85 handling are present. Each 0x81 is now held until three successful current-calibration 0x80 CAR_POSE frames have been handed to UART5, and air ACK input is buffered by UART5 RXNE IRQ.",
     "button_mapping": "PG12 maintenance reset, PG13 task 1 start/second-press emergency stop, PG9 task 2 start/second-press emergency stop.",
     "local_motion_authority": "Gray line, direct JY901 yaw, and encoder distance start and run the car without radar or Pi.",
     "radar_pi_fallback_policy": "PG13/PG9 local motion never waits for radar, Pi, or CalibrationId. A fresh raw Pi pose plus valid MCU-local calibration can establish 0x81 coordination later; a missing pose may not be replaced with a fabricated CalibrationId.",
@@ -23,11 +23,13 @@
     "watchdog_policy": "A moving lap retains the 90 s scoring watchdog. A separate 20 s encoder-no-progress watchdog stops a jammed or non-propelling vehicle.",
     "configured_speeds_mm_s": {
       "task_1": 130,
-      "task_2": 150
+      "task_2": 150,
+      "task_2_output_max_percent": 55
     },
     "calibration_path": "Ground 0x83 is committed to MCU RAM and directly ACKed in the next car slot. A stopped-car request with a new sequence may replace the previous complete raw-pose Delta; duplicate Src+Type+Seq requests are ACK-deduplicated for 5 seconds. PG12 locally clears calibration and emits three 0x85 frames.",
     "strict_v23_compliance_status": "The one-way Pi-to-MCU local-calibration path is a compatibility field-test path. It does not prove the DOCX Pi 0x83/0x85 ACK transaction or platform-center scoring geometry, so it must not be marked as a strict scoring pass.",
-    "build_status": "LineFollowMissionDebug builds successfully with MCU-local calibration and repeated-calibration diagnostics. The latest image still requires a successful physical flash; J-Link GDB reset failed, while CubeProgrammer J-Link mode=UR reset=HWrst identified STM32F103ZE (0x414, 512 KB)."
+    "build_status": "LineFollowMissionDebug builds successfully with MCU-local calibration, task 0x80 x3 -> 0x81 x3 preamble enforcement, UART5 RXNE ACK buffering, and a task-2-only 55% PWM ceiling. On 2026-08-01, J-Link SWD at 50 kHz connected to STM32F103ZE at 3.30 V, programmed and compare-verified every image section, reset and started the MCU; COM13 P returned a healthy IDLE status at t_ms=25226.",
+    "field_joint_test_status": "User reports the car-aircraft joint test has succeeded and the system is ready for controlled parameter tuning. No per-frame air-side evidence from that run is stored in this repository, so preserve the next run's logs before making tuning claims."
   },
   "requirements_alignment": {
     "authoritative_sources": [
@@ -50,6 +52,6 @@
     "Flight-control STM32, air ESP32/LoRa forwarding, payload handling, and ground-station UI source are not in this repository.",
     "No field evidence yet proves 10 Hz CAR_POSE, 2 Hz FLIGHT_TELEMETRY, task ACK/retry, or the scored physical flight stages."
   ],
-  "next_action": "Reconnect the J-Link USB probe, flash the current LineFollowMissionDebug image using CubeProgrammer J-Link mode=UR reset=HWrst, then run a stopped repeated 0x83 test with a new request sequence and capture calibration_replaced_mcu, ground ACK, three CAR_POSE frames, 0x81, and air ACK evidence.",
-  "checkpoint_decision": "User requested a Git checkpoint after the repeated-calibration implementation, successful build, and documented car-air ACK joint test."
+  "next_action": "Run one controlled straight-line field case from A using PG13 or PG9, then capture the frozen log and air-link evidence before changing turn, base-speed, or PWM parameters.",
+  "checkpoint_decision": "User requested a Git staged checkpoint after the verified J-Link flash, boot status, and reported successful car-aircraft joint test."
 }

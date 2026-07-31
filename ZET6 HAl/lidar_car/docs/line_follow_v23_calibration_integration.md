@@ -15,10 +15,18 @@ This page is the current car-side integration checklist. The historical
 | --- | --- |
 | `0x80 CAR_POSE` | Pi sends raw `0x31 -> 0x32` only; MCU retains it unchanged internally and publishes `0x30 -> 0x10` at 10 Hz. The LoRa egress mapping is `X_lora=-(X_pi-13 cm)+DeltaX`, `Y_lora=-Y_pi+DeltaY`, `yaw_lora=yaw_pi`; local `CALIBRATED/CalibrationId` is written after that mapping. |
 | `0x83 CALIBRATION_SET` | Ground station sends `0x40 -> 0x30`, `ACK_REQUIRED`, 12-byte payload. MCU accepts it only while the car is not running, commits `DeltaX/DeltaY/CalibrationId` to MCU RAM, and replies directly to ground in the next car slot. It does not transmit to or wait for Pi. A new request sequence may replace an existing local calibration for debugging; the received Delta is always the complete offset from raw Pi pose, never an increment. Repeated `Src+Type+Seq` requests are deduplicated for 5 seconds. |
-| `0x85 MAINTENANCE_RESET` | PG12 is valid only after 12 s stationary and a 2 s hold. MCU clears its local Delta, `CALIBRATED`, and CalibrationId, then broadcasts three LoRa copies directly. Pi is not queried. |
+| `0x85 MAINTENANCE_RESET` | A stopped-car PG12 short press after 50 ms debounce clears the MCU-local Delta, `CALIBRATED`, and CalibrationId, then broadcasts three LoRa copies directly. Pi is not queried. The firmware has no long-press compatibility branch. |
 | Local fallback | PG13/PG9 require the A marker and fresh JY901 only. Missing, stale, or implausible Pi/radar data records `task_coordination_deferred` while gray/JY901/encoder line following continues. Three valid raw pose samples plus MCU-local calibration may establish `0x81` later without restarting or stopping the car. |
 | Task 1 speed | PG13 uses a 130 mm/s cooperative straight-line target. Existing curve, wide-line, and lost-line caps remain in force. |
 | Task 2 speed | PG9 uses a 150 mm/s cooperative straight-line target. Existing curve, wide-line, and lost-line caps remain in force. |
+
+## PG12 Standard Boundary
+
+`LineFollowMissionDebug` implements only the short-press procedure. It must not
+be described as requiring 12 s stationary or a long hold. The authoritative
+V2.3 Appendix timing procedure remains an external scoring requirement and does
+not close the separate Pi ownership/ACK gap documented in G3; it is not a CMake
+option or a second physical button behavior in this firmware.
 
 ## Physical topology and ownership
 
@@ -83,11 +91,23 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts\test_line_follow_cal
    and the requested CalibrationId. Relative to the recorded uncalibrated output,
    `X_after-X_before=DeltaX` and `Y_after-Y_before=DeltaY`. Raw Pi/radar
    diagnostic X/Y must remain unchanged by the transaction.
-7. Hold PG12 for 2 s after 12 s stationary. The MCU must clear its local
-   calibration without contacting Pi, then emit exactly three `0x85` copies with
-   the same ResetId, Seq, and payload while only the final two frames set
+7. Query diagnostics and confirm `pg12_short_press_only=1`, `motors_enabled=0`,
+   and `maint_broadcast_left=0`.
+   Low-active short-press PG12; after the 50 ms debounce the MCU must log
+   `maintenance_reset_local_applied,reason=PG12_SHORT_PRESS`, clear local
+   calibration without contacting Pi, then emit exactly three `0x85` copies
+   with the same ResetId, Seq, and payload while only the final two set
    `RETRANSMISSION`. Subsequent outgoing `0x80` frames return to
    `CALIBRATED=0, CalibrationId=0`.
+8. After `maint_broadcast_left=0`, short-press PG12 once more and confirm a new
+   ResetId. The ground station then sends a new `0x83` Seq and CalibrationId to
+   apply the next offset. Do not press PG12 during motion or during the
+   three-frame broadcast.
+9. A later short press must increment `maint_reset_attempts` and
+   `maint_reset_successes`, use a new ResetId after the previous broadcast has
+   completed, and leave `maint_last_result=PG12_SHORT_PRESS`. The V2.3
+   Appendix physical-button timing is not implemented by this firmware and
+   remains separate from the missing Pi reset ACK chain.
 
 ### Recalibration Debug
 

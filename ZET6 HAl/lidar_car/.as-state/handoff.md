@@ -11,15 +11,22 @@ the V2.3 protocol DOCX, `docs/\u4efb\u52a1\u8981\u6c42.png`, and `docs/D\u9898 \
 - PG12 is the maintenance-reset key.  PG13 starts task 1 and PG9 starts task
   2; a second press of either task key requests the local emergency stop.
 - The car MCU parses V2.3 mission status (`0x82`) and flight telemetry
-  (`0x02`), sends `0x81` task requests with three slot retries, and handles
-  MCU-local calibration (`0x83`) and maintenance reset (`0x85`) without a
-  Pi return channel.
+  (`0x02`). A task session now requires three successfully sent, current-
+  calibration `0x80 CAR_POSE` frames before its three-slot `0x81` retry
+  sequence; UART5 RXNE buffering protects the air ACK window. MCU-local
+  calibration (`0x83`) and maintenance reset (`0x85`) do not need a Pi return
+  channel.
 - Pi/radar input remains raw inside the MCU. Only outgoing LoRa `0x80 CAR_POSE`
   applies `X_lora=-(X_pi-13 cm)+DeltaX`, `Y_lora=-Y_pi+DeltaY`, and
   `yaw_lora=yaw_pi`. This mapping is never fed back into line following, JY901,
   encoder, or raw radar state.
 - Current cooperative target speeds are 130 mm/s for task 1 and 150 mm/s for
-  task 2.
+  task 2. Task 2 alone can use up to 55% positive PWM (task 1 remains 45%) to
+  provide B-point margin when the LADRC output is saturated.
+- The default flash route is J-Link SWD at 50 kHz through
+  `scripts/jlink_flash.ps1 -Configuration LineFollowMissionDebug -SwdSpeedKhz 50`.
+  On 2026-08-01 it connected at 3.30 V, programmed and compare-verified every
+  image section, reset the MCU, and COM13 `P` confirmed the running image.
 - Radar coordinates are auxiliary progress/preparation evidence. Gray line,
   JY901 heading, and encoder distance remain the motion and stop authorities;
   the car may run a local lap with no radar/Pi input.
@@ -31,10 +38,9 @@ the V2.3 protocol DOCX, `docs/\u4efb\u52a1\u8981\u6c42.png`, and `docs/D\u9898 \
   coordination.
 - A stopped car can replace its local calibration for debugging with a new
   `0x83` request sequence. The new Delta is complete relative to raw Pi pose,
-  not additive. The current image builds successfully; latest physical flash
-  remains pending because the J-Link probe USB disconnected after a GDB-reset
-  failure. CubeProgrammer successfully identified STM32F103ZE using J-Link
-  `mode=UR reset=HWrst` before the probe disappeared.
+  not additive. The current image was physically flashed and boot-checked on
+  2026-08-01. The user also reports a successful car-aircraft joint test;
+  preserve the next radio capture before treating this as scored evidence.
 
 ## Open scoring risks
 
@@ -61,8 +67,8 @@ contest-readiness acceptance decision.
 
 ## Next minimum action
 
-Reconnect J-Link, flash `LineFollowMissionDebug` using CubeProgrammer J-Link
-`mode=UR reset=HWrst`, then capture repeated `0x83` replacement, direct ground
-ACK, and paired Pi-input/LoRa-output frames proving
-`X_lora=-(X_pi-13 cm)+DeltaX`, `Y_lora=-Y_pi+DeltaY`, and
-`yaw_lora=yaw_pi` before collecting `0x81` and air ACK evidence.
+Run one controlled straight-line field case from A with PG13 or PG9, then
+capture `CALIBRATED 0x80 x3 -> 0x81 x3 -> air 0x11 ACK`, `radio_uart_err=0`,
+and the frozen line-follow log before changing base speed, PWM limits, or turn
+parameters. Preserve paired Pi-input/LoRa-output frames proving
+`X_lora=-(X_pi-13 cm)+DeltaX`, `Y_lora=-Y_pi+DeltaY`, and `yaw_lora=yaw_pi`.

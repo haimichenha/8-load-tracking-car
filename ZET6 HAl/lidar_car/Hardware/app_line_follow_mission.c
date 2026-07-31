@@ -46,6 +46,7 @@
 #define LINE_RADIO_CAR_SLOT_WINDOW_MS          25U
 #define LINE_RADIO_RX_POLL_LIMIT              128U
 #define LINE_TASK_REQUEST_RETRY_COUNT           3U
+#define LINE_TASK_POSE_PREAMBLE_COUNT           3U
 #define LINE_TASK_ACK_WINDOW_MS               350U
 #define LINE_MISSION_ABORT_RETRY_COUNT          3U
 #define LINE_ABORT_ACK_WINDOW_MS              350U
@@ -55,8 +56,6 @@
 #define LINE_CALIBRATION_PAYLOAD_LENGTH         12U
 #define LINE_MAINTENANCE_PAYLOAD_LENGTH          8U
 #define LINE_ACK_PAYLOAD_LENGTH                  4U
-#define LINE_MAINTENANCE_HOLD_MS            2000U
-#define LINE_MAINTENANCE_STATIONARY_MS     12000U
 #define LINE_MAINTENANCE_BROADCAST_COUNT       3U
 #define LINE_CALIBRATION_DEDUP_MS            5000U
 #define LINE_CALIBRATION_RECORD_COUNT           4U
@@ -119,6 +118,10 @@
 #define LINE_SPEED_WO                        40.0f
 #define LINE_SPEED_OUT_REVERSE_MIN          -35.0f
 #define LINE_SPEED_OUT_MAX                   45.0f
+/* The latest task-2 run reaches B in about 13 s and the straight sections
+ * are output-limited at 45%.  Give only dynamic landing a 10-point reserve;
+ * LADRC still closes the wheel-speed loop and may command less. */
+#define LINE_TASK2_SPEED_OUT_MAX             55.0f
 #define LINE_SPEED_OUT_STEP                   6.0f
 #define LINE_TARGET_REVERSE_MIN_CPS         -800
 #define LINE_TARGET_MAX_CPS                 1600
@@ -128,7 +131,7 @@
 #define LINE_LOST_DIRECTION_ERROR_X100        200
 #define LINE_LOST_DIRECTION_MIN_CPS           500
 #define LINE_LOST_SEARCH_DIFFERENTIAL_CPS    2400
-#define LINE_LOST_REACQUIRE_SAMPLES             3U
+#define LINE_LOST_REACQUIRE_SAMPLES            10U
 #define LINE_LOST_REACQUIRE_ERROR_X100        300
 #define LINE_A_RAW_FULL_MASK                  0xFFU
 #define LINE_A_RETURN_MIN_STABLE_BITS            7U
@@ -304,13 +307,9 @@ static uint32_t s_stateStartMs;
 static uint32_t s_runStartMs;
 static uint32_t s_motionStartMs;
 static uint32_t s_lostStartMs;
-static uint32_t s_maintenanceStationarySinceMs;
-static uint32_t s_maintenanceButtonSinceMs;
 static LineMissionButton_t s_taskOneButton;
 static LineMissionButton_t s_taskTwoButton;
 static LineMissionButton_t s_calibrationButton;
-static uint8_t s_maintenanceButtonPressed;
-static uint8_t s_maintenanceButtonHandled;
 static uint8_t s_normalLineCount;
 static uint8_t s_completeMarkCount;
 static uint8_t s_gyroStaleReported;
@@ -343,6 +342,8 @@ static uint16_t s_taskMissionId;
 static uint16_t s_taskCalibrationId;
 static uint8_t s_taskSequence;
 static uint8_t s_taskTxRemaining;
+static uint8_t s_taskPosePreambleCount;
+static uint16_t s_taskPosePreambleCalibrationId;
 static uint8_t s_taskAckResult;
 static uint8_t s_taskAckDetail;
 static uint32_t s_taskSourceTimeMs;
@@ -362,6 +363,11 @@ static uint16_t s_maintenanceNextResetId;
 static uint8_t s_maintenanceBroadcastRemaining;
 static uint8_t s_maintenanceBroadcastSequence;
 static uint32_t s_maintenanceBroadcastSourceTimeMs;
+static uint32_t s_maintenanceResetAttemptCount;
+static uint32_t s_maintenanceResetSuccessCount;
+static uint32_t s_maintenanceResetRunningRejectCount;
+static uint32_t s_maintenanceResetBusyRejectCount;
+static const char *s_maintenanceLastResult;
 static LineMissionLocalCalibration_t s_localCalibration;
 static LineMissionCalibrationRecord_t
     s_calibrationRecord[LINE_CALIBRATION_RECORD_COUNT];
@@ -397,6 +403,9 @@ static void LineMission_ClearLocalCalibration(void);
 static uint8_t LineMission_IsLocalCalibrationPoseReady(uint32_t nowMs);
 static uint32_t LineMission_RunElapsedMs(uint32_t nowMs);
 static uint32_t LineMission_EncoderProgressAgeMs(uint32_t nowMs);
+static void LineMission_EnterState(LineMissionState_t state,
+                                   uint32_t nowMs,
+                                   const char *reason);
 
 static void LineMission_CancelPendingTask(const char *reason, uint32_t nowMs);
 static void LineMission_QueueMissionAbort(const char *reason, uint32_t nowMs);
@@ -704,6 +713,17 @@ static int16_t LineMission_SelectLostHoldDifferential(void)
                             LINE_LOST_SEARCH_DIFFERENTIAL_CPS;
 }
 
+static void LineMission_EnterLostHold(uint32_t nowMs)
+{
+    /* Start the timeout at the first stable all-white observation.  This is
+     * shared by the A-exit and normal tracking paths so a task cannot spend
+     * an extra leave-A window driving after the line is already gone. */
+    s_holdDifferentialCps = LineMission_SelectLostHoldDifferential();
+    s_lostReacquireCount = 0U;
+    s_lostStartMs = nowMs;
+    LineMission_EnterState(LINE_MISSION_LOST_HOLD, nowMs, "LINE_LOST");
+}
+
 static void LineMission_VelocityWindowReset(LineVelocityWindow_t *window)
 {
     uint8_t index;
@@ -869,6 +889,10 @@ static void LineMission_WriteStatus(uint32_t nowMs)
     DiagUart_WriteUInt32(LineMission_EncoderProgressAgeMs(nowMs));
     DiagUart_WriteString(",task2_b_deadline_ms=");
     DiagUart_WriteUInt32(LINE_TASK2_B_DEADLINE_MS);
+    DiagUart_WriteString(",task1_pwm_max_pct=");
+    DiagUart_WriteUInt32((uint32_t)LINE_SPEED_OUT_MAX);
+    DiagUart_WriteString(",task2_pwm_max_pct=");
+    DiagUart_WriteUInt32((uint32_t)LINE_TASK2_SPEED_OUT_MAX);
     DiagUart_WriteString(",motion_started=");
     DiagUart_WriteUInt32(s_motionStarted);
     DiagUart_WriteString(",motion_elapsed_ms=");
@@ -883,6 +907,13 @@ static void LineMission_WriteStatus(uint32_t nowMs)
     DiagUart_WriteUInt32(1U);
     DiagUart_WriteString(",lost_timeout_ms=");
     DiagUart_WriteUInt32(LINE_LOST_TIMEOUT_MS);
+    DiagUart_WriteString(",lost_reacquire_samples=");
+    DiagUart_WriteUInt32(LINE_LOST_REACQUIRE_SAMPLES);
+    DiagUart_WriteString(",lost_center_capture=");
+    DiagUart_WriteUInt32(s_observer.centerCaptureActive);
+    DiagUart_WriteString(",lost_elapsed_ms=");
+    DiagUart_WriteUInt32((s_state == LINE_MISSION_LOST_HOLD) ?
+                         (nowMs - s_lostStartMs) : 0U);
     DiagUart_WriteString(",live_record_log=");
     DiagUart_WriteUInt32(LINE_LIVE_RECORD_LOG_ENABLE);
     DiagUart_WriteString(",pg13_task1_raw_pressed=");
@@ -897,15 +928,21 @@ static void LineMission_WriteStatus(uint32_t nowMs)
     DiagUart_WriteUInt32(rawCalibrationPressed);
     DiagUart_WriteString(",pg12_cal_stable_pressed=");
     DiagUart_WriteUInt32(s_calibrationButton.stablePressed);
-    DiagUart_WriteString(",pg12_cal_hold_ms=");
-    DiagUart_WriteUInt32((s_maintenanceButtonPressed != 0U) ?
-                          (nowMs - s_maintenanceButtonSinceMs) : 0U);
-    DiagUart_WriteString(",maint_stationary_ms=");
-    DiagUart_WriteUInt32(nowMs - s_maintenanceStationarySinceMs);
+    DiagUart_WriteString(",pg12_short_press_only=1");
     DiagUart_WriteString(",maint_reset_id=");
     DiagUart_WriteUInt32(s_maintenanceResetId);
     DiagUart_WriteString(",maint_broadcast_left=");
     DiagUart_WriteUInt32(s_maintenanceBroadcastRemaining);
+    DiagUart_WriteString(",maint_reset_attempts=");
+    DiagUart_WriteUInt32(s_maintenanceResetAttemptCount);
+    DiagUart_WriteString(",maint_reset_successes=");
+    DiagUart_WriteUInt32(s_maintenanceResetSuccessCount);
+    DiagUart_WriteString(",maint_reset_reject_running=");
+    DiagUart_WriteUInt32(s_maintenanceResetRunningRejectCount);
+    DiagUart_WriteString(",maint_reset_reject_busy=");
+    DiagUart_WriteUInt32(s_maintenanceResetBusyRejectCount);
+    DiagUart_WriteString(",maint_last_result=");
+    DiagUart_WriteString(s_maintenanceLastResult);
     DiagUart_WriteString(",last_button_ms=");
     DiagUart_WriteUInt32(s_lastButtonPressMs);
     DiagUart_WriteString(",stable_mask=");
@@ -1039,6 +1076,12 @@ static void LineMission_WriteStatus(uint32_t nowMs)
     DiagUart_WriteUInt32(s_taskMissionId);
     DiagUart_WriteString(",task_cal_id=");
     DiagUart_WriteUInt32(s_taskCalibrationId);
+    DiagUart_WriteString(",task_pose_preamble_tx=");
+    DiagUart_WriteUInt32(s_taskPosePreambleCount);
+    DiagUart_WriteString(",task_pose_preamble_required=");
+    DiagUart_WriteUInt32(LINE_TASK_POSE_PREAMBLE_COUNT);
+    DiagUart_WriteString(",task_pose_preamble_cal_id=");
+    DiagUart_WriteUInt32(s_taskPosePreambleCalibrationId);
     DiagUart_WriteString(",task_seq=");
     DiagUart_WriteUInt32(s_taskSequence);
     DiagUart_WriteString(",task_tx_left=");
@@ -1815,6 +1858,10 @@ static void LineMission_WriteTaskEvent(const char *event,
     DiagUart_WriteUInt32(s_taskMissionId);
     DiagUart_WriteString(",calibration_id=");
     DiagUart_WriteUInt32(s_taskCalibrationId);
+    DiagUart_WriteString(",pose_preamble_tx=");
+    DiagUart_WriteUInt32(s_taskPosePreambleCount);
+    DiagUart_WriteString(",pose_preamble_cal_id=");
+    DiagUart_WriteUInt32(s_taskPosePreambleCalibrationId);
     DiagUart_WriteString(",seq=");
     DiagUart_WriteUInt32(s_taskSequence);
     DiagUart_WriteString(",tx_left=");
@@ -1840,6 +1887,57 @@ static void LineMission_WriteTaskEvent(const char *event,
     DiagUart_WriteString(",line_state=");
     DiagUart_WriteString(LineMission_StateName());
     DiagUart_WriteString("\r\n");
+}
+
+static void LineMission_ResetTaskPosePreamble(void)
+{
+    s_taskPosePreambleCount = 0U;
+    s_taskPosePreambleCalibrationId = 0U;
+}
+
+static void LineMission_ObserveTaskPosePreamble(uint32_t nowMs)
+{
+    uint16_t calibrationId;
+
+    /* A task request is meaningful to the aircraft only after it has seen
+     * current calibrated CAR_POSE traffic for this run.  Count only frames
+     * that were encoded and handed to UART5 successfully. */
+    if ((s_taskType == LINE_TASK_NONE) ||
+        (s_taskState != LINE_TASK_STATE_IDLE) ||
+        (LineMission_IsLocalCalibrationPoseReady(nowMs) == 0U))
+    {
+        LineMission_ResetTaskPosePreamble();
+        return;
+    }
+
+    calibrationId = s_localCalibration.calibrationId;
+    if (s_taskPosePreambleCalibrationId != calibrationId)
+    {
+        s_taskPosePreambleCount = 0U;
+        s_taskPosePreambleCalibrationId = calibrationId;
+    }
+
+    if (s_taskPosePreambleCount < LINE_TASK_POSE_PREAMBLE_COUNT)
+    {
+        ++s_taskPosePreambleCount;
+        LineMission_WriteTaskEvent("task_pose_preamble_tx",
+                                   "CALIBRATED_CAR_POSE", nowMs);
+        if (s_taskPosePreambleCount == LINE_TASK_POSE_PREAMBLE_COUNT)
+        {
+            LineMission_WriteTaskEvent("task_pose_preamble_ready",
+                                       "THREE_CALIBRATED_POSES", nowMs);
+        }
+    }
+}
+
+static uint8_t LineMission_TaskPosePreambleReady(uint32_t nowMs)
+{
+    return ((s_taskPosePreambleCount >= LINE_TASK_POSE_PREAMBLE_COUNT) &&
+            (s_taskPosePreambleCalibrationId != 0U) &&
+            (s_taskPosePreambleCalibrationId ==
+             s_localCalibration.calibrationId) &&
+            (LineMission_IsLocalCalibrationPoseReady(nowMs) != 0U)) ?
+           1U : 0U;
 }
 
 static void LineMission_CancelPendingTask(const char *reason, uint32_t nowMs)
@@ -2093,6 +2191,8 @@ static void LineMission_ResetTaskSession(LineMissionTaskType_t taskType)
     s_taskCalibrationId = 0U;
     s_taskSequence = 0U;
     s_taskTxRemaining = 0U;
+    s_taskPosePreambleCount = 0U;
+    s_taskPosePreambleCalibrationId = 0U;
     s_taskAckResult = 0xFFU;
     s_taskAckDetail = 0xFFU;
     s_taskSourceTimeMs = 0U;
@@ -2300,6 +2400,7 @@ static uint8_t LineMission_QueueTaskRequest(LineMissionTaskType_t taskType,
     if ((taskType == LINE_TASK_NONE) ||
         (taskType != s_taskType) ||
         (LineMission_IsLocalCalibrationPoseReady(nowMs) == 0U) ||
+        (LineMission_TaskPosePreambleReady(nowMs) == 0U) ||
         (s_taskState != LINE_TASK_STATE_IDLE) ||
         (s_abortTxRemaining != 0U) ||
         (s_abortAckDeadlineMs != 0U))
@@ -2334,14 +2435,22 @@ static void LineMission_TryStartRemoteCoordination(uint32_t nowMs)
 {
     if ((LineMission_IsActive() == 0U) ||
         (s_taskType == LINE_TASK_NONE) ||
-        (s_taskState != LINE_TASK_STATE_IDLE) ||
-        (LineMission_IsLocalCalibrationPoseReady(nowMs) == 0U))
+        (s_taskState != LINE_TASK_STATE_IDLE))
     {
         return;
     }
 
+    if (LineMission_IsLocalCalibrationPoseReady(nowMs) == 0U)
+    {
+        /* A gap or changed calibration makes previously sent pose frames
+         * ineligible as a task preamble. */
+        LineMission_ResetTaskPosePreamble();
+        return;
+    }
+
     /* The vehicle may already be following the line.  The Pi pose is used
-     * here solely to build a valid 0x81 packet; it never delays propulsion. */
+     * here solely to build a valid 0x81 packet; the three-frame preamble
+     * never delays propulsion. */
     (void)LineMission_QueueTaskRequest(s_taskType, nowMs);
 }
 
@@ -2744,21 +2853,19 @@ static void LineMission_WriteMaintenanceEvent(const char *event,
 
 static uint8_t LineMission_RequestMaintenanceReset(uint32_t nowMs)
 {
+    ++s_maintenanceResetAttemptCount;
     if (LineMission_IsMissionBusy() != 0U)
     {
+        ++s_maintenanceResetRunningRejectCount;
+        s_maintenanceLastResult = "CAR_RUNNING";
         LineMission_WriteMaintenanceEvent("maintenance_reset_rejected",
                                           "CAR_RUNNING", nowMs);
         return 0U;
     }
-    if ((uint32_t)(nowMs - s_maintenanceStationarySinceMs) <
-        LINE_MAINTENANCE_STATIONARY_MS)
-    {
-        LineMission_WriteMaintenanceEvent("maintenance_reset_rejected",
-                                          "STOP_NOT_12S", nowMs);
-        return 0U;
-    }
     if (s_maintenanceBroadcastRemaining != 0U)
     {
+        ++s_maintenanceResetBusyRejectCount;
+        s_maintenanceLastResult = "BROADCAST_BUSY";
         LineMission_WriteMaintenanceEvent("maintenance_reset_rejected",
                                           "BUSY", nowMs);
         return 0U;
@@ -2778,8 +2885,10 @@ static uint8_t LineMission_RequestMaintenanceReset(uint32_t nowMs)
     {
         s_maintenanceNextResetId = 1U;
     }
+    ++s_maintenanceResetSuccessCount;
+    s_maintenanceLastResult = "PG12_SHORT_PRESS";
     LineMission_WriteMaintenanceEvent("maintenance_reset_local_applied",
-                                      "PG12_HOLD", nowMs);
+                                      "PG12_SHORT_PRESS", nowMs);
     return 1U;
 }
 
@@ -2865,6 +2974,13 @@ static void LineMission_UpdateRadioLink(uint32_t nowMs)
      * replaces one pose frame but never transmits in the air response window. */
     if (s_radioAckQueueCount != 0U)
     {
+        if ((s_taskType != LINE_TASK_NONE) &&
+            (s_taskState == LINE_TASK_STATE_IDLE))
+        {
+            /* The air side requires consecutive CAR_POSE frames. A directed
+             * maintenance reply between them starts the preamble again. */
+            LineMission_ResetTaskPosePreamble();
+        }
         if (LineMission_SendQueuedRadioAck(nowMs) != 0U)
         {
             LineMission_MarkRadioSlot(nowMs);
@@ -2888,6 +3004,10 @@ static void LineMission_UpdateRadioLink(uint32_t nowMs)
         if (LineMission_SendCarPose(pose) == 0U)
         {
             ++s_radioPoseDropCount;
+        }
+        else
+        {
+            LineMission_ObserveTaskPosePreamble(nowMs);
         }
         LineMission_MarkRadioSlot(nowMs);
         return;
@@ -2953,7 +3073,7 @@ static void LineMission_ButtonInit(uint32_t nowMs)
     GPIO_StructInit(&gpio);
     /* All task keys are active-low.  PG13 starts task 1, PG9 starts task 2
      * and a subsequent press of either key safely stops an active run.  PG12
-     * remains the held manual-calibration key.  PG10 is intentionally unused. */
+     * is the short-press maintenance-reset key.  PG10 is intentionally unused. */
     gpio.GPIO_Pin = GPIO_Pin_9 | GPIO_Pin_12 | GPIO_Pin_13;
     gpio.GPIO_Mode = GPIO_Mode_IPU;
     gpio.GPIO_Speed = GPIO_Speed_2MHz;
@@ -2962,34 +3082,16 @@ static void LineMission_ButtonInit(uint32_t nowMs)
     LineMission_ButtonInitOne(&s_taskOneButton, GPIO_Pin_13, nowMs);
     LineMission_ButtonInitOne(&s_taskTwoButton, GPIO_Pin_9, nowMs);
     LineMission_ButtonInitOne(&s_calibrationButton, GPIO_Pin_12, nowMs);
-    s_maintenanceButtonPressed = s_calibrationButton.stablePressed;
-    s_maintenanceButtonHandled = 0U;
-    s_maintenanceButtonSinceMs = nowMs;
 }
 
 static void LineMission_HandleMaintenanceButton(uint8_t pressedEvent,
                                                 uint32_t nowMs)
 {
-    if (s_calibrationButton.stablePressed == 0U)
+    /* ButtonUpdate supplies a 50 ms debounced press edge.  PG12 is intentionally
+     * short-press only so a stopped vehicle can repeat a local reset during
+     * calibration work without a second timing gate. */
+    if (pressedEvent != 0U)
     {
-        s_maintenanceButtonPressed = 0U;
-        s_maintenanceButtonHandled = 0U;
-        return;
-    }
-
-    if ((s_maintenanceButtonPressed == 0U) || (pressedEvent != 0U))
-    {
-        s_maintenanceButtonPressed = 1U;
-        s_maintenanceButtonHandled = 0U;
-        s_maintenanceButtonSinceMs = nowMs;
-        return;
-    }
-
-    if ((s_maintenanceButtonHandled == 0U) &&
-        ((uint32_t)(nowMs - s_maintenanceButtonSinceMs) >=
-         LINE_MAINTENANCE_HOLD_MS))
-    {
-        s_maintenanceButtonHandled = 1U;
         (void)LineMission_RequestMaintenanceReset(nowMs);
     }
 }
@@ -3059,6 +3161,12 @@ static int32_t LineMission_CooperativeBaseSpeedMmPerSec(void)
            LINE_TASK2_COOP_SPEED_MM_S : LINE_TASK1_COOP_SPEED_MM_S;
 }
 
+static float LineMission_ActiveSpeedOutputMaxPercent(void)
+{
+    return (s_taskType == LINE_TASK_DYNAMIC_LANDING) ?
+           LINE_TASK2_SPEED_OUT_MAX : LINE_SPEED_OUT_MAX;
+}
+
 static int16_t LineMission_SelectBaseCps(void)
 {
     int32_t absError = LineMission_Abs(s_observer.grayErrorX100);
@@ -3109,7 +3217,14 @@ static void LineMission_ApplySpeedControl(uint32_t samplePeriodMs)
 {
     int16_t baseCps;
     int16_t differentialCps;
+    float outputMaxPercent = LineMission_ActiveSpeedOutputMaxPercent();
     float samplePeriodSeconds = (float)samplePeriodMs / 1000.0f;
+
+    /* Task 2 has a verified 10-point forward-duty reserve for its B-point
+     * time margin. This is an output ceiling, not a fixed PWM offset, so
+     * LADRC keeps reducing drive when measured wheel speed reaches target. */
+    s_leftSpeed.outputMaxPercent = outputMaxPercent;
+    s_rightSpeed.outputMaxPercent = outputMaxPercent;
 
     baseCps = LineMission_SelectBaseCps();
     differentialCps = (s_state == LINE_MISSION_LOST_HOLD) ?
@@ -3307,17 +3422,24 @@ static void LineMission_UpdateRunState(uint32_t nowMs)
             LineObserver_ResetHeadingReference(&s_observer);
             LineMission_ResetLapTurnProgress();
             s_startPrepared = 1U;
+            LineMission_WriteTaskEvent("task_start_wait",
+                                       "CAR_POSE_PREAMBLE", nowMs);
+            return;
+        }
+
+        if (s_taskState == LINE_TASK_STATE_IDLE)
+        {
+            if (LineMission_IsLocalCalibrationPoseReady(nowMs) == 0U)
+            {
+                LineMission_ResetTaskPosePreamble();
+                return;
+            }
             if (LineMission_QueueTaskRequest(s_taskType, nowMs) == 0U)
             {
-                s_startPrepared = 0U;
-                LineMission_WriteTaskEvent("task_start_wait", "QUEUE_RETRY",
-                                           nowMs);
+                return;
             }
-            else
-            {
-                LineMission_WriteTaskEvent("task_start_wait",
-                                           "WAIT_AIR_ACK", nowMs);
-            }
+            LineMission_WriteTaskEvent("task_start_wait", "WAIT_AIR_ACK",
+                                       nowMs);
             return;
         }
 
@@ -3433,6 +3555,11 @@ static void LineMission_UpdateRunState(uint32_t nowMs)
 
     if (s_state == LINE_MISSION_LEAVE_A)
     {
+        if (s_observer.lineClass == LINE_OBSERVER_LOST)
+        {
+            LineMission_EnterLostHold(nowMs);
+            return;
+        }
         if (s_observer.lineClass == LINE_OBSERVER_TRACK)
         {
             ++s_normalLineCount;
@@ -3458,7 +3585,12 @@ static void LineMission_UpdateRunState(uint32_t nowMs)
 
     if (s_state == LINE_MISSION_LOST_HOLD)
     {
-        if ((LineMission_IsFollowableLineClass(s_observer.lineClass) != 0U) &&
+        /* Do not let a brief edge/width reflection cancel the lost-line
+         * deadline.  Reacquire only after a centre sensor has captured the
+         * line and that condition remains stable for 10 control samples
+         * (about 200 ms at the 20 ms control period). */
+        if ((s_observer.centerCaptureActive != 0U) &&
+            (LineMission_IsFollowableLineClass(s_observer.lineClass) != 0U) &&
             (LineMission_Abs(s_observer.grayErrorX100) <=
              LINE_LOST_REACQUIRE_ERROR_X100))
         {
@@ -3490,10 +3622,7 @@ static void LineMission_UpdateRunState(uint32_t nowMs)
     {
         /* Keep the last four meaningful steering samples through all-white
          * loss so the search turns toward the side where the line escaped. */
-        s_holdDifferentialCps = LineMission_SelectLostHoldDifferential();
-        s_lostReacquireCount = 0U;
-        s_lostStartMs = nowMs;
-        LineMission_EnterState(LINE_MISSION_LOST_HOLD, nowMs, "LINE_LOST");
+        LineMission_EnterLostHold(nowMs);
         return;
     }
 
@@ -3549,7 +3678,6 @@ void LineFollowMission_Init(uint32_t nowMs)
     s_runStartMs = nowMs;
     s_motionStartMs = 0U;
     s_lostStartMs = nowMs;
-    s_maintenanceStationarySinceMs = nowMs;
     s_normalLineCount = 0U;
     s_completeMarkCount = 0U;
     s_gyroStaleReported = 0U;
@@ -3577,6 +3705,8 @@ void LineFollowMission_Init(uint32_t nowMs)
     s_taskCalibrationId = 0U;
     s_taskSequence = 0U;
     s_taskTxRemaining = 0U;
+    s_taskPosePreambleCount = 0U;
+    s_taskPosePreambleCalibrationId = 0U;
     s_taskAckResult = 0xFFU;
     s_taskAckDetail = 0xFFU;
     s_taskSourceTimeMs = 0U;
@@ -3596,6 +3726,11 @@ void LineFollowMission_Init(uint32_t nowMs)
     s_maintenanceBroadcastRemaining = 0U;
     s_maintenanceBroadcastSequence = 0U;
     s_maintenanceBroadcastSourceTimeMs = 0U;
+    s_maintenanceResetAttemptCount = 0U;
+    s_maintenanceResetSuccessCount = 0U;
+    s_maintenanceResetRunningRejectCount = 0U;
+    s_maintenanceResetBusyRejectCount = 0U;
+    s_maintenanceLastResult = "NONE";
     LineMission_ClearLocalCalibration();
     for (index = 0U; index < LINE_CALIBRATION_RECORD_COUNT; ++index)
     {
@@ -3621,7 +3756,7 @@ void LineFollowMission_Init(uint32_t nowMs)
     s_rearRightRawPercent = 0;
     LineMission_MotorOff();
 
-    DiagUart_WriteString("LF,boot,mode=COMPETITION_LINE_FOLLOW,task1_key=PG13_active_low,task2_key=PG9_active_low,repeat_task_key=manual_stop,maint_key=PG12_hold2s_after_stop12s_mcu_local_reset,");
+    DiagUart_WriteString("LF,boot,mode=COMPETITION_LINE_FOLLOW,task1_key=PG13_active_low,task2_key=PG9_active_low,repeat_task_key=manual_stop,maint_key=PG12_short_press_after_stop_mcu_local_reset,");
     DiagUart_WriteString("gray=pc0_pc1_pc2_pg0,white_raw=0,center_mask=24,");
     DiagUart_WriteString("front=pa2_pa3_pe2_pe6,rear=pe13_pe14_pf1_pf4_pb9,enc_front=tim5_tim3,rear=open_loop_follower,");
     DiagUart_WriteString("forward_sign=fl-1_fr-1_rl+1_rr-1,gyro=usart2_remap_pd5_tx_pd6_rx_9600,pi_pose=uart4_raw_one_way_31_to_32,");
@@ -3643,9 +3778,9 @@ void LineFollowMission_Init(uint32_t nowMs)
     DiagUart_WriteUInt32(LINE_A_RETURN_MIN_DISTANCE_MM);
     DiagUart_WriteString(",radio=pose80_10hz,task81_three_slots,cal83_mcu_local_ack,reset85_mcu_local_three_slots,abort84_urgent,flight02+mission82_rx\r\n");
 #if (LINE_ENABLE_UART_MANUAL_STOP != 0)
-    DiagUart_WriteString("LF,commands,P=status,F=dump_frozen,S=manual_stop,H=help; task1=PG13,task2=PG9,repeat_task_key=stop,maint_event=PG12_hold2s\r\n");
+    DiagUart_WriteString("LF,commands,P=status,F=dump_frozen,S=manual_stop,H=help; task1=PG13,task2=PG9,repeat_task_key=stop,maint_event=PG12_short_press\r\n");
 #else
-    DiagUart_WriteString("LF,commands,P=status,F=dump_frozen,H=help; task1=PG13,task2=PG9,repeat_task_key=physical_stop,maint_event=PG12_hold2s\r\n");
+    DiagUart_WriteString("LF,commands,P=status,F=dump_frozen,H=help; task1=PG13,task2=PG9,repeat_task_key=physical_stop,maint_event=PG12_short_press\r\n");
 #endif
 }
 
@@ -3654,15 +3789,7 @@ void LineFollowMission_Update(uint32_t nowMs)
     uint32_t samplePeriodMs;
 
     LineMission_UpdateRadioLink(nowMs);
-    if (LineMission_IsMissionBusy() != 0U)
-    {
-        s_maintenanceStationarySinceMs = nowMs;
-    }
     LineMission_HandleButtons(nowMs);
-    if (LineMission_IsMissionBusy() != 0U)
-    {
-        s_maintenanceStationarySinceMs = nowMs;
-    }
 
     samplePeriodMs = nowMs - s_lastControlMs;
     if (samplePeriodMs < LINE_CONTROL_PERIOD_MS)
@@ -3755,9 +3882,9 @@ void LineFollowMission_HandleCommand(char command, uint32_t nowMs)
         case 'h':
         case '?':
 #if (LINE_ENABLE_UART_MANUAL_STOP != 0)
-            DiagUart_WriteString("LF,commands,P=status,F=dump_frozen,S=manual_stop,H=help; task1=PG13,task2=PG9,repeat_task_key=stop,maint_event=PG12_hold2s_after_stop12s\r\n");
+            DiagUart_WriteString("LF,commands,P=status,F=dump_frozen,S=manual_stop,H=help; task1=PG13,task2=PG9,repeat_task_key=stop,maint_event=PG12_short_press\r\n");
 #else
-            DiagUart_WriteString("LF,commands,P=status,F=dump_frozen,H=help; task1=PG13,task2=PG9,repeat_task_key=physical_stop,maint_event=PG12_hold2s_after_stop12s\r\n");
+            DiagUart_WriteString("LF,commands,P=status,F=dump_frozen,H=help; task1=PG13,task2=PG9,repeat_task_key=physical_stop,maint_event=PG12_short_press\r\n");
 #endif
             break;
         default:

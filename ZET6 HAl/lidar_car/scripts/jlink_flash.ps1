@@ -63,17 +63,33 @@ try
         throw "J-Link GDB Server exited early.`n$(Get-Content -Raw -LiteralPath $serverLog -ErrorAction SilentlyContinue)`n$(Get-Content -Raw -LiteralPath $serverErrorLog -ErrorAction SilentlyContinue)"
     }
 
-    $gdbOutput = (& $gdb $elf --batch `
-        -ex 'target remote localhost:2331' `
-        -ex 'monitor reset' `
-        -ex 'load' `
-        -ex 'compare-sections' `
-        -ex 'monitor reset' `
-        -ex 'monitor go' `
-        -ex 'detach' 2>&1 | Out-String)
+    # GDB writes benign progress such as "Resetting target" to stderr.  Keep
+    # it in the captured transcript so the explicit exit-code and compare
+    # checks below, rather than PowerShell stderr handling, decide success.
+    $savedErrorActionPreference = $ErrorActionPreference
+    $savedNativeErrorActionPreference = $PSNativeCommandUseErrorActionPreference
+    $ErrorActionPreference = 'Continue'
+    $PSNativeCommandUseErrorActionPreference = $false
+    try
+    {
+        $gdbOutput = (& $gdb $elf --batch `
+            -ex 'target remote localhost:2331' `
+            -ex 'monitor reset' `
+            -ex 'load' `
+            -ex 'compare-sections' `
+            -ex 'monitor reset' `
+            -ex 'monitor go' `
+            -ex 'detach' 2>&1 | Out-String)
+        $gdbExitCode = $LASTEXITCODE
+    }
+    finally
+    {
+        $PSNativeCommandUseErrorActionPreference = $savedNativeErrorActionPreference
+        $ErrorActionPreference = $savedErrorActionPreference
+    }
     Write-Output $gdbOutput
 
-    if (($LASTEXITCODE -ne 0) -or ($gdbOutput -match 'MIS-MATCHED|Remote communication error|Connection timed out'))
+    if (($gdbExitCode -ne 0) -or ($gdbOutput -match 'MIS-MATCHED|Remote communication error|Connection timed out'))
     {
         throw 'J-Link GDB flash or section comparison failed.'
     }

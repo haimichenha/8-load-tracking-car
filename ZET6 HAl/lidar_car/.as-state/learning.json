@@ -45,6 +45,20 @@
       "next_review": "During task-2 stage-transition telemetry validation"
     },
     {
+      "id": "v23_task_pose_preamble",
+      "symbol": "LineMission_ObserveTaskPosePreamble / LineMission_TaskPosePreambleReady",
+      "type": "radio-session precondition",
+      "unit": "3 successful 0x80 CAR_POSE transmissions",
+      "update_source": "LineMission_UpdateRadioLink after LineMission_SendCarPose returns success",
+      "update_timing": "Once per 100 ms car slot while a local task session is idle and raw pose plus MCU-local calibration remain fresh",
+      "consumers": ["LineMission_QueueTaskRequest", "aircraft PRECHECK", "task_request_tx telemetry"],
+      "failure_symptom": "If 0x81 is queued before three current calibrated 0x80 frames, the aircraft can reject or ignore the task as an invalid session even though the car starts normally.",
+      "confirmed_fact": "Preamble count resets on stale pose, changed CalibrationId, or an intervening directed ACK; PG13/PG9 local propulsion remains independent of this count.",
+      "misconception_to_avoid": "Three 0x81 retries do not replace the required CAR_POSE preamble; they only make one already-valid task request reliable.",
+      "mastery": "active_review",
+      "next_review": "First capture proving 0x80 x3 -> 0x81 x3 -> 0x11 ACK with radio_uart_err=0"
+    },
+    {
       "id": "line_no_progress_watchdog",
       "symbol": "LINE_NO_PROGRESS_WATCHDOG_MS / s_lastEncoderProgressMs",
       "type": "safety-progress watchdog",
