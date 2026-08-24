@@ -41,5 +41,7 @@ desktop.ini
 
 # ===== 大型参考文件（不适合 Git 管理）=====
 *.pdf
+!Hardware/原理图/
+!Hardware/原理图/*.pdf
 *.pptx
 *.xlsx

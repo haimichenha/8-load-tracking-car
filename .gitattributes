@@ -1,0 +1,2 @@
+# Preserve hardware-document PDFs byte-for-byte; do not apply text EOL conversion.
+*.pdf binary
